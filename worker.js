@@ -15,12 +15,12 @@ const CONFIG = {
     UPI_ID: "jaiswalanushi8@oksbi",
     AMAZON_AFFILIATE_ID: "akhilgpt-21",
     ADMIN_IDS: ["admin", "akhil", "jaiswalanushi08"],
-    SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/T08FUKG7W0L/B08FUKT8E9H/G0pS3jXhXW2H5jXoX",
+    SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/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",
     SLACK_SIGNING_SECRET: "059ce735021c1068a670e0e877424ddf",
-    WORKER_URL: "https://nexus-ultimate.apikeyakhilka.workers.dev",
+    WORKER_URL: "https://nexus-a1.apikeyakhilka.workers.dev",
     
     // ✅ THINKING MODE OFF — AI Smart Detection handles it
-    THINKING_MODE: false,
+    THINKING_MODE: true,
     
     CONTEXT_WINDOW: {
         max_tokens: 1000000,
