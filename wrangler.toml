@@ -3,22 +3,21 @@ main = "worker.js"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
-# ========== KV NAMESPACE ==========
+# ✅ ये Line Add करो
+module = "esm"
+
 [[kv_namespaces]]
 binding = "KV"
 id = "7f3a894d6cb041b3a7c25546f8714342"
 
-# ========== D1 DATABASE ==========
 [[d1_databases]]
 binding = "DB"
 database_name = "nexus_users"
 database_id = "80563f0c-f9f7-4af4-aa12-941a093cb88e"
 
-# ========== VECTORIZE INDEX ==========
 [[vectorize]]
 binding = "VECTOR"
 index_name = "captain-cool-index"
 
-# ========== WORKERS AI ==========
 [ai]
 binding = "AI"
