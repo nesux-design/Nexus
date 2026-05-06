@@ -1662,10 +1662,10 @@ export default {
             return new Response(JSON.stringify({ response, isPremium, plan: user.plan || 'free', latency: Date.now() - start, streamingAvailable: true, ...(cd ? { canvas: cd } : {}) }), { headers });
         }
         
-        return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
+                return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
     },
-    
-        scheduled: async (event, env, ctx) => {
+
+    scheduled: async (event, env, ctx) => {
         await sendDailyReportToSlack(env);
         console.log("📊 Daily report sent to Slack");
     }
