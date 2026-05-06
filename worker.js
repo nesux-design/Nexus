@@ -19,6 +19,7 @@ const CONFIG = {
     SLACK_SIGNING_SECRET: "059ce735021c1068a670e0e877424ddf",
     WORKER_URL: "https://nexus-a1.apikeyakhilka.workers.dev",
     
+    // ✅ THINKING MODE OFF — AI Smart Detection handles it
     THINKING_MODE: true,
     
     CONTEXT_WINDOW: {
@@ -155,11 +156,65 @@ const AI_AGENTS = {
 };
 
 // ==========================================
+// ========== GPT-5.5 LEVEL MASTER PROMPT ==========
+// ==========================================
+const MASTER_PROMPT = `You are NEXUS, an advanced AI assistant created by Akhil Jaiswal. You are at GPT-5.5 level.
+
+**YOUR CORE CAPABILITIES:**
+- You can generate, edit, and improve images (using reasoning, not keywords)
+- You can search the web for real-time information using Google Search
+- You remember the context of entire conversation
+- You can analyze documents, code, and data
+- You have voice conversation capability
+
+**SMART WEB SEARCH RULES:**
+- Use Google Search for ANY question about current events, sports, news, weather, elections, stock prices, or any real-time data
+- NEVER say "I don't have real-time access" — you DO have it via Google Search
+- NEVER use placeholder text like "Insert match name here" or "Insert teams here"
+- NEVER include thinking steps or system prefixes in your final output
+- Give DIRECT answers first, then add details
+- For sports queries: give team names, time, venue, and current score
+- For news queries: give headlines with dates and sources
+- Respond in SAME LANGUAGE as user (Hindi → Hindi, English → English)
+
+**CHATGPT 5.5 LEVEL THINKING PROCESS:**
+Before responding, ALWAYS think step by step:
+
+1. UNDERSTAND: What does the user actually want?
+2. CONTEXT: What happened in previous messages? Any images generated?
+3. DECIDE: Based on context, decide action
+4. EXECUTE: Take the appropriate action
+
+**CRITICAL RULES (NO KEYWORDS - PURE UNDERSTANDING):**
+- NEVER rely on keywords like "draw", "create", "banao"
+- ALWAYS use conversation context to understand intent
+- If user has uploaded an image or generated an image, remember it
+- "Improve", "better", "aur accha" on existing image = EDIT, not new image
+- "Table", "chart", "data" without visual = TEXT table, not image
+
+**RESPONSE FORMAT:**
+- Use ## for main headings
+- Use **bold** for emphasis
+- Use bullet points for lists
+- Use code blocks for code
+- Respond in SAME LANGUAGE as user
+- Keep responses SHORT and ACCURATE
+
+**PREMIUM INFO (ONLY when asked):**
+- Free: 50 msgs/day, 10 images/day
+- Premium: ₹299/month or ₹1,499/year
+- Pro: ₹2,999/year (Unlimited)
+- UPI: jaiswalanushi8@oksbi
+
+**NOW THINK, THEN RESPOND. YOU ARE NEXUS, CHATGPT LEVEL.**`;
+
+// ==========================================
 // ========== HELPER FUNCTIONS ==========
 // ==========================================
 function generateId() { return Date.now() + '_' + Math.random().toString(36).substring(2, 10); }
 function isAdmin(userId) { return CONFIG.ADMIN_IDS.includes(userId); }
 
+// ✅ KEY ROTATION
 let globalFailed = new Map();
 function getNextKey(provider) {
     const keys = API_KEYS[provider];
@@ -232,8 +287,10 @@ async function checkPremium(env, userId) {
     if (user.premiumExpiry && user.premiumExpiry > Date.now()) return true;
     if (user.premiumExpiry && user.premiumExpiry <= Date.now()) { await updateUser(env, userId, { isPremium: false, plan: 'free', premiumExpiry: null }); return false; }
     return false;
-}
-
+        }
+// ==========================================
+// ========== DAILY STATS FUNCTIONS ==========
+// ==========================================
 async function updateDailyStat(env, type) {
     if (!env?.DB) return;
     const today = new Date().toISOString().split('T')[0];
@@ -243,58 +300,6 @@ async function updateDailyStat(env, type) {
         else await env.DB.prepare(`INSERT INTO daily_stats (id, date, messages, images, premium_requests, premium_activations, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(generateId(), today, type==='messages'?1:0, type==='images'?1:0, type==='premium_requests'?1:0, type==='premium_activations'?1:0, Date.now()).run();
     } catch(e) {}
 }
-// ==========================================
-// ========== GPT-5.5 LEVEL MASTER PROMPT ==========
-// ==========================================
-const MASTER_PROMPT = `You are NEXUS, an advanced AI assistant created by Akhil Jaiswal. You are at GPT-5.5 level.
-
-**YOUR CORE CAPABILITIES:**
-- You can generate, edit, and improve images (using reasoning, not keywords)
-- You can search the web for real-time information using Google Search
-- You remember the context of entire conversation
-- You can analyze documents, code, and data
-- You have voice conversation capability
-
-**SMART WEB SEARCH RULES:**
-- Use Google Search for ANY question about current events, sports, news, weather, elections, stock prices, or any real-time data
-- NEVER say "I don't have real-time access" — you DO have it via Google Search
-- NEVER use placeholder text like "Insert match name here" or "Insert teams here"
-- NEVER include thinking steps or system prefixes in your final output
-- Give DIRECT answers first, then add details
-- For sports queries: give team names, time, venue, and current score
-- For news queries: give headlines with dates and sources
-- Respond in SAME LANGUAGE as user (Hindi → Hindi, English → English)
-
-**CHATGPT 5.5 LEVEL THINKING PROCESS:**
-Before responding, ALWAYS think step by step:
-
-1. UNDERSTAND: What does the user actually want?
-2. CONTEXT: What happened in previous messages? Any images generated?
-3. DECIDE: Based on context, decide action
-4. EXECUTE: Take the appropriate action
-
-**CRITICAL RULES (NO KEYWORDS - PURE UNDERSTANDING):**
-- NEVER rely on keywords like "draw", "create", "banao"
-- ALWAYS use conversation context to understand intent
-- If user has uploaded an image or generated an image, remember it
-- "Improve", "better", "aur accha" on existing image = EDIT, not new image
-- "Table", "chart", "data" without visual = TEXT table, not image
-
-**RESPONSE FORMAT:**
-- Use ## for main headings
-- Use **bold** for emphasis
-- Use bullet points for lists
-- Use code blocks for code
-- Respond in SAME LANGUAGE as user
-- Keep responses SHORT and ACCURATE
-
-**PREMIUM INFO (ONLY when asked):**
-- Free: 50 msgs/day, 10 images/day
-- Premium: ₹299/month or ₹1,499/year
-- Pro: ₹2,999/year (Unlimited)
-- UPI: jaiswalanushi8@oksbi
-
-**NOW THINK, THEN RESPOND. YOU ARE NEXUS, CHATGPT LEVEL.**`;
 
 // ==========================================
 // ========== SLACK FUNCTIONS ==========
@@ -351,6 +356,7 @@ async function handleSlackInteraction(request, env) {
         return new Response('', { status:200 });
     } catch(e) { return new Response('', { status:200 }); }
 }
+
 // ==========================================
 // ========== VECTOR DATABASE ==========
 // ==========================================
@@ -378,7 +384,7 @@ async function searchVectorDB(env, userId, query, limit=5) {
 // ==========================================
 function calculateImportance(message) {
     let score = 0.5;
-    const imp = ['remember','important','note','save',"don't forget",'reminder','my name is','i am called','my email','my phone','birthday'];
+    const imp = ['remember','important','note','save',"don't forget",'reminder','my name is','i am called','my email','my phone','birthday','याद','जरूरी','महत्वपूर्ण','मेरा नाम'];
     const unimp = ['?','hello','hi','hey','thanks','ok','hmm'];
     for (const k of imp) if (message.toLowerCase().includes(k)) score += 0.15;
     for (const k of unimp) if (message.toLowerCase().includes(k)) score -= 0.1;
@@ -485,7 +491,8 @@ async function editImageWithInpainting(env, imageData, instruction, mask = null)
         if (response?.image) { const binaryData = Uint8Array.from(atob(response.image), c => c.charCodeAt(0)); const blob = new Blob([binaryData], { type: 'image/png' }); const imageId = generateId(); await saveImageToKV(env, imageId, blob); return { success: true, blob: blob, provider: 'Inpainting', url: `${CONFIG.WORKER_URL}/image/${imageId}` }; }
     } catch(e) {}
     return { success: false };
-    // ==========================================
+            }
+// ==========================================
 // ========== GLM-4V VISION ==========
 // ==========================================
 async function analyzeImageWithGLM(imageData, prompt) {
@@ -521,7 +528,7 @@ async function analyzeImage(imageData, prompt) {
 // ========== AI MODEL CALLS (With Key Rotation) ==========
 // ==========================================
 
-// ✅ GEMINI: 6 keys internally rotate, 429 pe 60s cooldown
+// ✅ GEMINI: 5 keys internally rotate, 429 pe 60s cooldown
 // Model: gemini-2.5-flash-lite, Web Search: ENABLED
 async function callGemini(prompt, withWebSearch = true) {
     const key = getNextKey('gemini');
@@ -740,8 +747,8 @@ async function callOpenRouter(messages) {
     }
     
     return null;
-            }
-        }
+}
+
 // ==========================================
 // ========== 🧠 SMART WEB SEARCH DECISION (Pure AI - No Keywords) ==========
 // ==========================================
@@ -770,12 +777,12 @@ async function shouldSearchWeb(query, context = '') {
 **EXAMPLES OF DEEP UNDERSTANDING:**
 - "What's happening in cricket?" → Needs search (current events)
 - "Tell me about cricket rules" → No search (fixed knowledge)
-- "Who is winning the match?" → Needs search (live data)
+- "Who is winning the match?" → Needs search (live data),"if ask for updated rules"- Needs search(changing fact)
 - "How to calculate percentage?" → No search (fixed math)
 - "Weather today" → Needs search (current data)
 - "What causes rain?" → No search (scientific fact)
 - "Latest on [any topic]" → Needs search (recency implied)
-- "What is the capital of France?" → No search (unchanging fact)
+- "What is the capital of France?" → Needs search (changing fact)
 - "Current price of Bitcoin" → Needs search (real-time data)
 - "What is Bitcoin?" → No search (definition)
 
@@ -882,10 +889,9 @@ async function webSearchRSS(query) {
 }
 
 async function performWebSearch(query) {
-    // Try all 5 sources in parallel for speed, but return first good result
+    // Try all 5 sources - jo pehle valid result de, wahi use karo
     const sources = [webSearchGoogle, webSearchGroq, webSearchWikipedia, webSearchDuckDuckGo, webSearchRSS];
     
-    // Race: jo pehle valid result de, wahi use karo
     const results = await Promise.allSettled(sources.map(s => s(query)));
     
     for (const result of results) {
@@ -926,7 +932,7 @@ async function getResponse(env, query, context, isPremium, userId, isAgentChat =
         }
     }
     
-    // ✅ FALLBACK CHAIN: Gemini(6 keys)→Groq(3 keys)→Cerebras(3 keys)→SambaNova(3 keys)→OpenRouter(1 key)
+    // ✅ FALLBACK CHAIN: Gemini(5 keys)→Groq(3 keys)→Cerebras(3 keys)→SambaNova(3 keys)→OpenRouter(1 key)
     let response = await callGemini(finalPrompt, true);
     if (!response) response = await callGroq([{ role: "user", content: finalPrompt }]);
     if (!response) response = await callCerebras([{ role: "user", content: finalPrompt }]);
@@ -962,6 +968,7 @@ class SSEStream {
     }
 
     chunk(text) { this.send({ type: 'chunk', text }); }
+
     done(fullResponse) {
         if (!this.closed && this.controller) {
             try {
@@ -973,6 +980,7 @@ class SSEStream {
         this.closed = true;
         this.controller = null;
     }
+
     error(msg) {
         if (!this.closed && this.controller) {
             try {
@@ -1212,7 +1220,7 @@ async function handleStreamingChat(env, message, context, userId, sessionId, ip,
         } catch(e) { sse.error(e.message); }
     })();
     return { stream, processPromise };
-        }
+}
 // ==========================================
 // ========== SESSION MANAGEMENT ==========
 // ==========================================
@@ -1262,7 +1270,7 @@ async function thinkBeforeAct(env, userMessage, sessionContext, hasLastImage, la
 }
 
 // ==========================================
-// ========== PREMIUM + OTHER FEATURES ==========
+// ========== PREMIUM FUNCTIONS ==========
 // ==========================================
 async function requestPremium(env, userId, transactionId, plan, upiId) {
     const existingPayment = await env.DB.prepare(`SELECT * FROM payments WHERE transaction_id = ?`).bind(transactionId).first();
@@ -1302,11 +1310,61 @@ async function verifyPremium(env, userId, transactionId, plan) {
     return { success: true, message: "Premium activated!", expiry: new Date(expiryDate) };
 }
 
-async function generateQRCode(text, size = 300) {
-    try { const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`; const res = await fetch(qrUrl); if (res.ok) return { success:true, blob:await res.blob() }; } catch(e) {}
-    return { success:false };
+// ==========================================
+// ========== FILE UPLOAD FUNCTIONS ==========
+// ==========================================
+async function parseMultipartForm(request) {
+    const contentType = request.headers.get('Content-Type') || '';
+    if (!contentType.includes('multipart/form-data')) return null;
+    
+    const formData = await request.formData();
+    const result = { message: '', files: [] };
+    
+    for (const [key, value] of formData.entries()) {
+        if (key === 'message') result.message = value;
+        else if (value instanceof File) {
+            const buffer = await value.arrayBuffer();
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+            result.files.push({ name: value.name, type: value.type, size: value.size, data: base64 });
+        }
+    }
+    return result;
 }
 
+async function processUploadedFile(env, file, message) {
+    const extension = file.name.split('.').pop().toLowerCase();
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > 10) return { error: "File too large. Max 10MB." };
+    
+    if (['pdf'].includes(extension)) {
+        const response = await callGemini(`Acknowledge receipt of PDF "${file.name}" (${(file.size/1024).toFixed(1)}KB). Ask what the user needs from this document.`, false);
+        return { success: true, fileName: file.name, fileType: 'PDF', fileSize: (file.size/1024).toFixed(1)+'KB', message: response||`📄 Received: ${file.name}`, type: 'pdf' };
+    }
+    if (['csv','xlsx','xls'].includes(extension)) {
+        const response = await callGemini(`Acknowledge ${extension.toUpperCase()} spreadsheet "${file.name}". Offer to analyze the data.`, false);
+        return { success: true, fileName: file.name, fileType: extension.toUpperCase()+' Spreadsheet', fileSize: (file.size/1024).toFixed(1)+'KB', message: response||`📊 Received: ${file.name}`, type: 'spreadsheet' };
+    }
+    if (['txt','md','json','xml','yaml','yml'].includes(extension)) {
+        const binary = Uint8Array.from(atob(file.data), c=>c.charCodeAt(0));
+        const text = new TextDecoder().decode(binary);
+        return { success: true, fileName: file.name, fileType: 'Text File', content: text.substring(0,3000), fullLength: text.length, type: 'text' };
+    }
+    if (['html','css','js','py','java','cpp','c','go','rs','ts','jsx','tsx'].includes(extension)) {
+        const binary = Uint8Array.from(atob(file.data), c=>c.charCodeAt(0));
+        const code = new TextDecoder().decode(binary);
+        return { success: true, fileName: file.name, fileType: `${extension.toUpperCase()} Code`, content: code.substring(0,2000), fullLength: code.length, type: 'code' };
+    }
+    if (['jpg','jpeg','png','gif','webp'].includes(extension)) {
+        const result = await analyzeImage(`data:${file.type};base64,${file.data}`, message);
+        if (result) return { success: true, fileName: file.name, fileType: 'Image', analysis: result.analysis, provider: result.provider, type: 'image' };
+        return { error: "Image analysis failed" };
+    }
+    return { error: `Unsupported file type: .${extension}` };
+}
+
+// ==========================================
+// ========== CANVAS / ARTIFACTS ==========
+// ==========================================
 async function generateCanvasArtifact(env, code, language) {
     const canvasId = generateId();
     let html = '', css = '', js = '';
@@ -1320,6 +1378,175 @@ async function generateCanvasArtifact(env, code, language) {
     
     await env.KV.put(`canvas:${canvasId}`, full, { expirationTtl: 86400*7 });
     return { canvasUrl: `${CONFIG.WORKER_URL}/canvas/${canvasId}`, canvasId: canvasId };
+}
+
+// ==========================================
+// ========== WORKSPACE + AGENTS ==========
+// ==========================================
+async function createWorkspace(env, name, ownerId) {
+    const workspaceId = generateId();
+    const workspace = { id: workspaceId, name, owner: ownerId, members: [{ userId: ownerId, role: 'admin', joinedAt: Date.now() }], channels: [{ name: 'general', createdBy: ownerId, createdAt: Date.now() }], createdAt: Date.now() };
+    await env.DB.prepare(`INSERT INTO conversations (id, user_id, data, created_at) VALUES (?, ?, ?, ?)`).bind(`workspace:${workspaceId}`, ownerId, JSON.stringify(workspace), Date.now()).run();
+    return workspace;
+}
+
+async function getUserAgents(env, userId) {
+    try { const result = await env.DB.prepare(`SELECT data FROM conversations WHERE user_id = ? AND id LIKE 'agent:%'`).bind(userId).all(); return (result.results||[]).map(x=>JSON.parse(x.data)); } catch(e) { return []; }
+}
+
+async function saveCustomAgent(env, userId, agentData) {
+    const agentId = generateId();
+    const agent = { id: agentId, userId, ...agentData, createdAt: Date.now(), usageCount: 0 };
+    await env.DB.prepare(`INSERT INTO conversations (id, user_id, data, created_at) VALUES (?, ?, ?, ?)`).bind(`agent:${agentId}`, userId, JSON.stringify(agent), Date.now()).run();
+    return agent;
+}
+
+// ==========================================
+// ========== VOICE FUNCTIONS ==========
+// ==========================================
+async function voiceToText(env, audioBlob) {
+    const key = getNextKey('groq');
+    if (!key) return { success: false, error: "No Groq key available" };
+    try {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'audio.webm');
+        formData.append('model', 'whisper-large-v3');
+        formData.append('language', 'hi');
+        formData.append('response_format', 'json');
+        const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` }, body: formData });
+        if (response.ok) { const data = await response.json(); return { success: true, text: data.text }; }
+    } catch(e) {}
+    return { success: false, error: "Voice recognition failed" };
+}
+
+// ✅ 4-Provider TTS - ElevenLabs → Edge TTS → GTTS → Deepgram
+async function textToVoice(text) {
+    const isHindi = /[\u0900-\u097F]/.test(text);
+    const cleanText = text.substring(0, 2000).replace(/[&<>"']/g, '');
+    
+    // ATTEMPT 1: ELEVENLABS (Best Quality)
+    const elKeys = CONFIG.TTS_KEYS?.elevenlabs;
+    if (elKeys?.length) {
+        for (const elKey of elKeys) {
+            try {
+                const voiceId = isHindi ? "pNInz6obpgDQGcFmaJgB" : "21m00Tcm4TlvDq8ikWAM";
+                const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                    method: 'POST', headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: cleanText, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } })
+                });
+                if (response.ok) { const audioBuffer = await response.arrayBuffer(); return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'ElevenLabs' }; }
+            } catch(e) {}
+        }
+    }
+    
+    // ATTEMPT 2: EDGE TTS
+    try {
+        const voiceName = isHindi ? 'hi-IN-SwaraNeural' : 'en-US-JennyNeural';
+        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="${isHindi?'hi-IN':'en-US'}"><voice name="${voiceName}"><mstts:express-as style="cheerful"><prosody rate="0%" pitch="0%">${cleanText}</prosody></mstts:express-as></voice></speak>`;
+        const response = await fetch('https://eastus.tts.speech.microsoft.com/cognitiveservices/v1', { method:'POST', headers:{'Content-Type':'application/ssml+xml','X-Microsoft-OutputFormat':'audio-24khz-96kbitrate-mono-mp3','User-Agent':'Mozilla/5.0'}, body:ssml });
+        if (response.ok) { const audioBuffer = await response.arrayBuffer(); return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'Edge TTS' }; }
+    } catch(e) {}
+    
+    // ATTEMPT 3: GTTS
+    try {
+        const lang = isHindi ? 'hi' : 'en';
+        const gttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(cleanText.substring(0,200))}`;
+        const response = await fetch(gttsUrl, { headers:{'User-Agent':'Mozilla/5.0'} });
+        if (response.ok) { const audioBuffer = await response.arrayBuffer(); if (audioBuffer.byteLength>1000) return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'GTTS' }; }
+    } catch(e) {}
+    
+    // ATTEMPT 4: DEEPGRAM
+    const dgKeys = CONFIG.TTS_KEYS?.deepgram;
+    if (dgKeys?.length) {
+        for (const dgKey of dgKeys) {
+            try {
+                const response = await fetch('https://api.deepgram.com/v1/speak', { method:'POST', headers:{'Authorization':`Token ${dgKey}`,'Content-Type':'application/json'}, body:JSON.stringify({ text:cleanText }) });
+                if (response.ok) { const audioBuffer = await response.arrayBuffer(); return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'Deepgram Aura' }; }
+            } catch(e) {}
+        }
+    }
+    
+    return { success: false, error: "All TTS providers failed" };
+}
+
+async function handleVoiceChat(request, env, userId, sessionId) {
+    try {
+        const formData = await request.formData();
+        const audioFile = formData.get('audio');
+        if (!audioFile) return new Response(JSON.stringify({ error: "No audio file provided" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        
+        const transcription = await voiceToText(env, audioFile);
+        if (!transcription.success) return new Response(JSON.stringify({ error: transcription.error }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        
+        const userMessage = transcription.text;
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const isPremium = await checkPremium(env, userId);
+        
+        const vectorMemories = await searchVectorDB(env, userId, userMessage, 3);
+        let vectorContext = "";
+        if (vectorMemories.length > 0) { vectorContext = "\n\n## 📚 Relevant Past Conversations\n\n"; for (const memory of vectorMemories) { if (memory.metadata?.text) vectorContext += `- ${memory.metadata.text.substring(0, 200)}...\n`; } }
+        
+        const sessionContext = await buildContext(env, ip, userId, sessionId, userMessage);
+        const aiResponse = await getResponse(env, userMessage, sessionContext + vectorContext, isPremium, userId);
+        await addMessage(env, ip, userId, sessionId, userMessage, aiResponse);
+        await saveToVectorDB(env, userId, userMessage, { response: aiResponse.substring(0, 500), type: 'voice' });
+        
+        const voiceResponse = await textToVoice(aiResponse);
+        if (voiceResponse.success) {
+            const respHeaders = {
+                'Content-Type': 'audio/mpeg',
+                'X-Transcript': encodeURIComponent(userMessage),
+                'X-Response-Text': encodeURIComponent(aiResponse),
+                'X-TTS-Provider': voiceResponse.provider || 'Unknown',
+                'Access-Control-Expose-Headers': 'X-Transcript, X-Response-Text, X-TTS-Provider'
+            };
+            return new Response(voiceResponse.audio, { headers: respHeaders });
+        }
+        return new Response(JSON.stringify({ transcript: userMessage, response: aiResponse, voiceError: voiceResponse.error }), { headers: { 'Content-Type': 'application/json' } });
+    } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+                          }
+// ==========================================
+// ========== QR CODE + SHOPPING + YOUTUBE + REMINDER ==========
+// ==========================================
+async function generateQRCode(text, size = 300) {
+    try { const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`; const res = await fetch(qrUrl); if (res.ok) return { success:true, blob:await res.blob() }; } catch(e) {}
+    return { success:false };
+}
+
+async function shoppingWithAffiliate(product, budget = null) {
+    const searchLink = `https://www.amazon.in/s?k=${encodeURIComponent(product)}&tag=${CONFIG.AMAZON_AFFILIATE_ID}`;
+    const searchResults = await performWebSearch(`best ${product} ${budget?`under ${budget}`:''} amazon india`);
+    let prompt = `You are a shopping assistant. Generate product recommendations for: ${product} ${budget?`under ₹${budget}`:''}`;
+    if (searchResults?.content) prompt = `Use this search result: ${searchResults.content}\n\nGenerate recommendations for: ${product}`;
+    const analysis = await callGemini(prompt);
+    return { analysis, searchLink };
+}
+
+async function getYoutubeSummary(videoUrl) {
+    try {
+        const videoId = videoUrl.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+        if (videoId) {
+            const oer = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+            if (oer.ok) {
+                const od = await oer.json();
+                const title = od.title;
+                const sr = await performWebSearch(`summary of YouTube video "${title}"`);
+                if (sr?.content) return `## 🎬 YouTube Video Summary\n\n**Title:** ${title}\n\n**Summary:** ${sr.content}\n\n**Source:** ${sr.source}`;
+                return `## 🎬 YouTube Video\n\n**Title:** ${title}\n\nWatch: ${videoUrl}`;
+            }
+        }
+    } catch(e) {}
+    return `## 🎬 YouTube Video\n\nWatch: ${videoUrl}`;
+}
+
+async function setReminder(env, userId, message, minutes) {
+    const reminderId = generateId();
+    const reminderTime = Date.now() + (minutes * 60 * 1000);
+    const reminder = { id: reminderId, userId, message, time: reminderTime, createdAt: Date.now() };
+    await env.KV.put(`reminder:${reminderId}`, JSON.stringify(reminder), { expirationTtl: minutes * 60 + 3600 });
+    return { success: true, reminderId, at: new Date(reminderTime).toISOString(), message };
 }
 
 // ==========================================
@@ -1355,29 +1582,68 @@ export default {
         if (url.pathname.startsWith('/image/')) { const iid = url.pathname.split('/')[2]; const blob = await getImageFromKV(env, iid); if (blob) return new Response(blob, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' } }); return new Response('Not found', { status: 404 }); }
         if (url.pathname.startsWith('/canvas/')) { const cid = url.pathname.split('/')[2]; const html = await env.KV.get(`canvas:${cid}`); if (html) return new Response(html, { headers: { 'Content-Type': 'text/html' } }); return new Response('Not found', { status: 404 }); }
         if (url.pathname === '/qr' && request.method === 'POST') { const body = await request.json(); if (!body.text) return new Response(JSON.stringify({ error: 'Text required' }), { status: 400, headers }); const qr = await generateQRCode(body.text, body.size || 300); if (qr.success) return new Response(qr.blob, { headers: { 'Content-Type': 'image/png' } }); return new Response(JSON.stringify({ error: 'QR failed' }), { status: 500, headers }); }
-        if (url.pathname === '/premium/request' && request.method === 'POST') { const { transactionId, plan, upiId } = await request.json(); if (!transactionId || !plan) return new Response(JSON.stringify({ error: 'transactionId and plan required' }), { status: 400, headers }); const result = await requestPremium(env, userId, transactionId, plan, upiId || CONFIG.UPI_ID); return new Response(JSON.stringify(result), { headers }); }
+        if (url.pathname === '/voice-chat' && request.method === 'POST') return await handleVoiceChat(request, env, userId, sessionId);
+        if (url.pathname === '/premium/request' && request.method === 'POST') { const data = await request.json().catch(() => ({})); const { transactionId, plan, upiId } = data; if (!transactionId || !plan) return new Response(JSON.stringify({ error: 'transactionId and plan required' }), { status: 400, headers }); const result = await requestPremium(env, userId, transactionId, plan, upiId || CONFIG.UPI_ID); return new Response(JSON.stringify(result), { headers }); }
         if (url.pathname === '/premium/verify' && request.method === 'GET') { const params = Object.fromEntries(url.searchParams); if (params.secret !== CONFIG.API_KEY) return new Response("Unauthorized", { status: 401 }); const result = await verifyPremium(env, params.userId, params.transactionId, params.plan); return new Response(JSON.stringify(result), { headers }); }
         if (url.pathname === '/premium/status') { const isP = await checkPremium(env, userId); const user = await getUser(env, userId); return new Response(JSON.stringify({ isPremium: isP, plan: user.plan || 'free', userId }), { headers }); }
         if (url.pathname === '/premium/plans') return new Response(JSON.stringify({ plans: CONFIG.PREMIUM_PLANS, paidFeatures: CONFIG.PAID_FEATURES, upiId: CONFIG.UPI_ID }), { headers });
-        if (url.pathname === '/health') { const isP = await checkPremium(env, userId); return new Response(JSON.stringify({ status: 'active', name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, isPremium: isP, version: 'GPT-5.5 + Smart AI Web Search', streaming: { modes: ['typing', 'burst'] }, webSearch: { type: 'AI-Based Semantic Understanding', providers: ['Gemini', 'Groq', 'Wikipedia', 'DuckDuckGo', 'RSS'] } }), { headers }); }
+        if (url.pathname === '/agents' && request.method === 'GET') { const ua = await getUserAgents(env, userId); return new Response(JSON.stringify({ systemAgents: Object.entries(AI_AGENTS).map(([id, a]) => ({ id, ...a })), userAgents: ua }), { headers }); }
+        if (url.pathname === '/agents' && request.method === 'POST') { const data = await request.json().catch(() => ({})); const { name, icon, prompt } = data; if (!name || !prompt) return new Response(JSON.stringify({ error: "Name and prompt required" }), { status: 400, headers }); const agent = await saveCustomAgent(env, userId, { name, icon: icon || '🤖', prompt }); return new Response(JSON.stringify({ success: true, agent }), { headers }); }
+        if (url.pathname === '/chat/agent' && request.method === 'POST') { const data = await request.json().catch(() => ({})); const { agentId, message } = data; let ap = AI_AGENTS[agentId]?.prompt; if (!ap) { const r = await env.DB.prepare(`SELECT data FROM conversations WHERE id = ?`).bind(`agent:${agentId}`).first(); if (r) ap = JSON.parse(r.data).prompt; } if (!ap) return new Response(JSON.stringify({ error: "Agent not found" }), { status: 404, headers }); const resp = await getResponse(env, message, ap, await checkPremium(env, userId), userId, true); return new Response(JSON.stringify({ response: resp, agentId }), { headers }); }
+        if (url.pathname === '/workspace' && request.method === 'POST') { const data = await request.json().catch(() => ({})); const { name } = data; if (!name) return new Response(JSON.stringify({ error: "Workspace name required" }), { status: 400, headers }); const ws = await createWorkspace(env, name, userId); return new Response(JSON.stringify({ success: true, workspace: ws }), { headers }); }
+        if (url.pathname.startsWith('/workspace/') && url.pathname.endsWith('/invite') && request.method === 'POST') { const wid = url.pathname.split('/')[2]; const data = await request.json().catch(() => ({})); const { userId: iuid } = data; const r = await env.DB.prepare(`SELECT data FROM conversations WHERE id = ?`).bind(`workspace:${wid}`).first(); if (!r) return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers }); const ws = JSON.parse(r.data); if (ws.owner !== userId) return new Response(JSON.stringify({ error: "Only owner can invite" }), { status: 403, headers }); ws.members.push({ userId: iuid, role: 'member', joinedAt: Date.now() }); await env.DB.prepare(`UPDATE conversations SET data = ? WHERE id = ?`).bind(JSON.stringify(ws), `workspace:${wid}`).run(); return new Response(JSON.stringify({ success: true, workspace: ws }), { headers }); }
+        if (url.pathname === '/canvas' && request.method === 'POST') { const data = await request.json().catch(() => ({})); const { html, css, js, title } = data; const cid = generateId(); const full = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title || 'NEXUS Canvas'}</title><style>${css || ''}</style></head><body>${html || ''}<script>${js || ''}</script></body></html>`; await env.KV.put(`canvas:${cid}`, full, { expirationTtl: 86400 }); return new Response(JSON.stringify({ success: true, canvasUrl: `${CONFIG.WORKER_URL}/canvas/${cid}` }), { headers }); }
         if (url.pathname === '/manifest.json') return new Response(JSON.stringify({ name: "NEXUS AI", short_name: "NEXUS", description: "GPT-5.5 Level AI by Akhil Jaiswal", start_url: "/", display: "standalone", background_color: "#0f172a", theme_color: "#6366f1", icons: [{ src: "/branding/logo", sizes: "192x192", type: "image/svg+xml" }] }), { headers: { ...headers, 'Content-Type': 'application/json' } });
         if (url.pathname === '/branding') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, tagline: "GPT-5.5 Level AI with Smart Semantic Search", logo: `${CONFIG.WORKER_URL}/branding/logo`, colors: { primary: "#6366f1", secondary: "#8b5cf6", accent: "#06b6d4", background: "#0f172a" }, version: "6.0.0", madeIn: "🇮🇳 India" }), { headers: { ...headers, 'Content-Type': 'application/json' } });
         if (url.pathname === '/branding/logo') { const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">GPT-5.5</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>`; return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age-86400' } }); }
-        if (url.pathname === '/clear') { await env.KV.delete(`session:${ip}|${userId}|${sessionId}`); return new Response(JSON.stringify({ success: true }), { headers }); }
+        if (url.pathname === '/health') { const isP = await checkPremium(env, userId); return new Response(JSON.stringify({ status: 'active', name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, isPremium: isP, version: 'GPT-5.5 + Smart AI Web Search', streaming: { modes: ['typing', 'burst'] }, webSearch: { type: 'AI-Based Semantic Understanding', providers: ['Gemini', 'Groq', 'Wikipedia', 'DuckDuckGo', 'RSS'] } }), { headers }); }
         if (url.pathname === '/') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: 'GPT-5.5_AI_SEMANTIC_SEARCH', creator: CONFIG.CREATOR, streaming: { modes: { typing: "Human-like", burst: "Instant" } }, webSearch: { type: "AI Semantic Understanding - No Keywords", auto: true }, premium: { monthly: '₹299', yearly: '₹1,499', pro: '₹2,999', upi: CONFIG.UPI_ID }, api_key: CONFIG.API_KEY }), { headers });
+        if (url.pathname === '/clear') { await env.KV.delete(`session:${ip}|${userId}|${sessionId}`); return new Response(JSON.stringify({ success: true }), { headers }); }
         
         // ========== MAIN CHAT ENDPOINT ==========
         if (url.pathname === '/chat' && request.method === 'POST') {
             const contentType = request.headers.get('Content-Type') || '';
             
-            let body = {};
-            try { body = await request.json(); } catch(e) {}
+            if (contentType.includes('multipart/form-data')) {
+                const parsed = await parseMultipartForm(request);
+                if (parsed?.files.length > 0) {
+                    const file = parsed.files[0];
+                    const result = await processUploadedFile(env, file, parsed.message);
+                    if (result.error) return new Response(JSON.stringify({ error: result.error }), { status: 400, headers });
+                    if (result.content && !result.message) {
+                        const resp = await getResponse(env, `File content: ${result.content}`, '', false, userId);
+                        await addMessage(env, ip, userId, sessionId, `Uploaded: ${file.name}`, resp);
+                        await updateDailyStat(env, 'messages');
+                        return new Response(JSON.stringify({ response: resp, fileInfo: { name: result.fileName, type: result.fileType, size: result.fileSize } }), { headers });
+                    }
+                    await updateDailyStat(env, 'messages');
+                    return new Response(JSON.stringify({ response: result.message, fileInfo: { name: result.fileName, type: result.fileType, size: result.fileSize } }), { headers });
+                }
+            }
             
-            const { message } = body;
+            let body = {};
+            try { body = await request.json(); } catch(e) { body = {}; }
+            
+            const { message, image, shoppingProduct, shoppingBudget, transformInstruction, videoUrl, reminderMessage, reminderMinutes } = body;
             const start = Date.now();
             const isPremium = await checkPremium(env, userId);
             const user = await getUser(env, userId);
+            const session = await getSession(env, ip, userId, sessionId);
             
+            if (reminderMessage && reminderMinutes) { const r = await setReminder(env, userId, reminderMessage, reminderMinutes); return new Response(JSON.stringify(r), { headers }); }
+            if (videoUrl) { const s = await getYoutubeSummary(videoUrl); await addMessage(env, ip, userId, sessionId, `YouTube: ${videoUrl}`, s); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: s }), { headers }); }
+            if (shoppingProduct) { const { analysis, searchLink } = await shoppingWithAffiliate(shoppingProduct, shoppingBudget); const full = `${analysis}\n\n---\n### 🔗 [View on Amazon](${searchLink})`; await addMessage(env, ip, userId, sessionId, `Shopping: ${shoppingProduct}`, full); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: full, shoppingLink: searchLink }), { headers }); }
+            if (image && transformInstruction) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "Premium feature!" }), { status: 403, headers }); const t = await transformImageWithSDXL(env, image, transformInstruction); if (t.success) { await addMessage(env, ip, userId, sessionId, message || transformInstruction, 'Transformed', true, t.url); await updateDailyStat(env, 'images'); return new Response(t.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': t.provider, ...headers } }); } }
+            
+            const sc = await buildContext(env, ip, userId, sessionId, message);
+            const hl = !!session.lastImageDesc;
+            const ad = await thinkBeforeAct(env, message, sc, hl, session.lastImageDesc, isPremium, userId);
+            
+            if (ad.action === "web_search") { const sr = await performWebSearch(message); const sresp = await callGemini(`Based on search, answer: ${message}\n\nResult: ${sr?.content || "None"}`, false); await addMessage(env, ip, userId, sessionId, message, sresp); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: sresp, isPremium, plan: user.plan || 'free' }), { headers }); }
+            if (ad.action === "improve_image" && session.lastImage) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "Premium feature!" }), { status: 403, headers }); const imp = await transformImageWithSDXL(env, session.lastImage, ad.prompt || "improve quality"); if (imp.success) { await addMessage(env, ip, userId, sessionId, message, 'Improved', true, imp.url); await updateDailyStat(env, 'images'); return new Response(imp.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': imp.provider, ...headers } }); } }
+            if (ad.action === "edit_image" && session.lastImage) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "Premium feature!" }), { status: 403, headers }); const ed = await editImageWithInpainting(env, session.lastImage, ad.prompt); if (ed.success) { await addMessage(env, ip, userId, sessionId, message, 'Edited', true, ed.url); await updateDailyStat(env, 'images'); return new Response(ed.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': ed.provider, ...headers } }); } }
+            if (ad.action === "new_image") { let mx = isPremium ? (user.plan === 'pro' ? 500 : 100) : 10; if (!isAdmin(userId)) { const ik = `usage:${userId}:img:${new Date().toDateString()}`; let ic = await env.KV.get(ik); ic = ic ? parseInt(ic) : 0; if (ic >= mx) return new Response(JSON.stringify({ error: `Limit: ${mx}/day` }), { status: 403, headers }); await env.KV.put(ik, String(ic + 1), { expirationTtl: 86400 }); } const img = await generateImage(env, ad.prompt || message); if (img.success) { await addMessage(env, ip, userId, sessionId, message, 'Generated', true, img.url); await updateDailyStat(env, 'images'); let tr = await callGemini(`Short friendly response in ${/[\u0900-\u097F]/.test(message) ? 'Hindi' : 'English'}.`, false); if (!tr) tr = '## 🎨 Created!'; return new Response(img.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': img.provider, 'X-Text-Response': encodeURIComponent(tr), ...headers } }); } }
+            if (image) { const result = await analyzeImage(image, message || 'Describe'); if (result) { await addMessage(env, ip, userId, sessionId, message || 'Analyze', result.analysis); return new Response(JSON.stringify({ analysis: result.analysis, provider: result.provider }), { headers }); } }
             if (!message) return new Response(JSON.stringify({ error: 'Message required' }), { status: 400, headers });
             
             // ✅ STREAMING CHECK
@@ -1390,14 +1656,13 @@ export default {
                 ctx.waitUntil(processPromise);
                 return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Stream-Mode': sm } });
             }
-
             // ✅ NORMAL RESPONSE
             let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
             if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
             
             const vm = await searchVectorDB(env, userId, message, 3); 
             let vc = ""; 
-            if (vm.length > 0) { vc = "\n\n## 📚 Relevant Past Conversations\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
+            if (vm.length > 0) { vc = "\n\n## ðŸ“š Relevant Past\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
             
             const sc2 = await buildContext(env, ip, userId, sessionId, message);
             const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
@@ -1426,6 +1691,6 @@ export default {
 
     scheduled: async (event, env, ctx) => {
         await sendDailyReportToSlack(env);
-        console.log("📊 Daily report sent to Slack");
+        console.log("✨ Daily report sent to Slack");
     }
 };
