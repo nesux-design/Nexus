@@ -1637,32 +1637,32 @@ export default {
             if (image) { const result = await analyzeImage(image, message || 'Describe'); if (result) { await addMessage(env, ip, userId, sessionId, message || 'Analyze', result.analysis); return new Response(JSON.stringify({ analysis: result.analysis, provider: result.provider }), { headers }); } }
             if (!message) return new Response(JSON.stringify({ error: 'Message required' }), { status: 400, headers });
             
-            // ✅ STREAMING CHECK
-            const sm = request.headers.get('X-Stream-Mode') || 'normal';
-            if (sm === 'typing' || sm === 'burst') {
-                const context = await buildContext(env, ip, userId, sessionId, message);
-                let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
-                if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
-                const { stream, processPromise } = await handleStreamingChat(env, message, context, userId, sessionId, ip, sm);
-                ctx.waitUntil(processPromise);
-                return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Stream-Mode': sm } });
-            }
-            
-            // ✅ NORMAL RESPONSE
+        // ✅ STREAMING CHECK
+        const sm = request.headers.get('X-Stream-Mode') || 'normal';
+        if (sm === 'typing' || sm === 'burst') {
+            const context = await buildContext(env, ip, userId, sessionId, message);
             let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
             if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
-            const vm = await searchVectorDB(env, userId, message, 3); let vc = ""; if (vm.length > 0) { vc = "\n\n## 📚 Relevant Past\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
-            const sc2 = await buildContext(env, ip, userId, sessionId, message);
-            const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
-            await addMessage(env, ip, userId, sessionId, message, response);
-            await saveToVectorDB(env, userId, message, { response: response.substring(0, 500), type: 'chat', importance: calculateImportance(message) });
-            await updateDailyStat(env, 'messages');
-            const cm = response.match(/```(\w+)?\n([\s\S]*?)```/); let cd = null;
-            if (cm && ['html', 'css', 'javascript', 'js'].includes(cm[1] || 'text')) { try { cd = await generateCanvasArtifact(env, cm[2], cm[1] || 'text'); } catch(e) {} }
-            return new Response(JSON.stringify({ response, isPremium, plan: user.plan || 'free', latency: Date.now() - start, streamingAvailable: true, ...(cd ? { canvas: cd } : {}) }), { headers });
+            const { stream, processPromise } = await handleStreamingChat(env, message, context, userId, sessionId, ip, sm);
+            ctx.waitUntil(processPromise);
+            return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Stream-Mode': sm } });
         }
-        
-                return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
+
+        // ✅ NORMAL RESPONSE
+        let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
+        if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
+        const vm = await searchVectorDB(env, userId, message, 3); let vc = ""; if (vm.length > 0) { vc = "\n\n## 📚 Relevant Past\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
+        const sc2 = await buildContext(env, ip, userId, sessionId, message);
+        const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
+        await addMessage(env, ip, userId, sessionId, message, response);
+        await saveToVectorDB(env, userId, message, { response: response.substring(0, 500), type: 'chat', importance: calculateImportance(message) });
+        await updateDailyStat(env, 'messages');
+        const cm = response.match(/```(\w+)?\n([\s\S]*?)```/); let cd = null;
+        if (cm && ['html', 'css', 'javascript', 'js'].includes(cm[1] || 'text')) { try { cd = await generateCanvasArtifact(env, cm[2], cm[1] || 'text'); } catch(e) {} }
+        return new Response(JSON.stringify({ response, isPremium, plan: user.plan || 'free', latency: Date.now() - start, streamingAvailable: true, ...(cd ? { canvas: cd } : {}) }), { headers });
+    }
+
+    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
     },
 
     scheduled: async (event, env, ctx) => {
