@@ -1665,7 +1665,7 @@ export default {
         return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
     },
     
-    async scheduled(event, env, ctx) {
+        scheduled: async (event, env, ctx) => {
         await sendDailyReportToSlack(env);
         console.log("📊 Daily report sent to Slack");
     }
