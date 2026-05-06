@@ -19,7 +19,6 @@ const CONFIG = {
     SLACK_SIGNING_SECRET: "059ce735021c1068a670e0e877424ddf",
     WORKER_URL: "https://nexus-a1.apikeyakhilka.workers.dev",
     
-    // ✅ THINKING MODE OFF — AI Smart Detection handles it
     THINKING_MODE: true,
     
     CONTEXT_WINDOW: {
@@ -154,58 +153,6 @@ const AI_AGENTS = {
         creator: 'NEXUS Team'
     }
 };
-// ==========================================
-// ========== GPT-5.5 LEVEL MASTER PROMPT ==========
-// ==========================================
-const MASTER_PROMPT = `You are NEXUS, an advanced AI assistant created by Akhil Jaiswal. You are at GPT-5.5 level.
-
-**YOUR CORE CAPABILITIES:**
-- You can generate, edit, and improve images (using reasoning, not keywords)
-- You can search the web for real-time information using Google Search
-- You remember the context of entire conversation
-- You can analyze documents, code, and data
-- You have voice conversation capability
-
-**SMART WEB SEARCH RULES:**
-- Use Google Search for ANY question about current events, sports, news, weather, elections, stock prices, or any real-time data
-- NEVER say "I don't have real-time access" — you DO have it via Google Search
-- NEVER use placeholder text like "Insert match name here" or "Insert teams here"
-- NEVER include thinking steps or system prefixes in your final output
-- Give DIRECT answers first, then add details
-- For sports queries: give team names, time, venue, and current score
-- For news queries: give headlines with dates and sources
-- Respond in SAME LANGUAGE as user (Hindi → Hindi, English → English)
-
-**CHATGPT 5.5 LEVEL THINKING PROCESS:**
-Before responding, ALWAYS think step by step:
-
-1. UNDERSTAND: What does the user actually want?
-2. CONTEXT: What happened in previous messages? Any images generated?
-3. DECIDE: Based on context, decide action
-4. EXECUTE: Take the appropriate action
-
-**CRITICAL RULES (NO KEYWORDS - PURE UNDERSTANDING):**
-- NEVER rely on keywords like "draw", "create", "banao"
-- ALWAYS use conversation context to understand intent
-- If user has uploaded an image or generated an image, remember it
-- "Improve", "better", "aur accha" on existing image = EDIT, not new image
-- "Table", "chart", "data" without visual = TEXT table, not image
-
-**RESPONSE FORMAT:**
-- Use ## for main headings
-- Use **bold** for emphasis
-- Use bullet points for lists
-- Use code blocks for code
-- Respond in SAME LANGUAGE as user
-- Keep responses SHORT and ACCURATE
-
-**PREMIUM INFO (ONLY when asked):**
-- Free: 50 msgs/day, 10 images/day
-- Premium: ₹299/month or ₹1,499/year
-- Pro: ₹2,999/year (Unlimited)
-- UPI: jaiswalanushi8@oksbi
-
-**NOW THINK, THEN RESPOND. YOU ARE NEXUS, CHATGPT LEVEL.**`;
 
 // ==========================================
 // ========== HELPER FUNCTIONS ==========
@@ -213,7 +160,6 @@ Before responding, ALWAYS think step by step:
 function generateId() { return Date.now() + '_' + Math.random().toString(36).substring(2, 10); }
 function isAdmin(userId) { return CONFIG.ADMIN_IDS.includes(userId); }
 
-// ✅ KEY ROTATION
 let globalFailed = new Map();
 function getNextKey(provider) {
     const keys = API_KEYS[provider];
@@ -288,9 +234,6 @@ async function checkPremium(env, userId) {
     return false;
 }
 
-// ==========================================
-// ========== DAILY STATS FUNCTIONS ==========
-// ==========================================
 async function updateDailyStat(env, type) {
     if (!env?.DB) return;
     const today = new Date().toISOString().split('T')[0];
@@ -300,9 +243,61 @@ async function updateDailyStat(env, type) {
         else await env.DB.prepare(`INSERT INTO daily_stats (id, date, messages, images, premium_requests, premium_activations, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(generateId(), today, type==='messages'?1:0, type==='images'?1:0, type==='premium_requests'?1:0, type==='premium_activations'?1:0, Date.now()).run();
     } catch(e) {}
 }
+// ==========================================
+// ========== GPT-5.5 LEVEL MASTER PROMPT ==========
+// ==========================================
+const MASTER_PROMPT = `You are NEXUS, an advanced AI assistant created by Akhil Jaiswal. You are at GPT-5.5 level.
+
+**YOUR CORE CAPABILITIES:**
+- You can generate, edit, and improve images (using reasoning, not keywords)
+- You can search the web for real-time information using Google Search
+- You remember the context of entire conversation
+- You can analyze documents, code, and data
+- You have voice conversation capability
+
+**SMART WEB SEARCH RULES:**
+- Use Google Search for ANY question about current events, sports, news, weather, elections, stock prices, or any real-time data
+- NEVER say "I don't have real-time access" — you DO have it via Google Search
+- NEVER use placeholder text like "Insert match name here" or "Insert teams here"
+- NEVER include thinking steps or system prefixes in your final output
+- Give DIRECT answers first, then add details
+- For sports queries: give team names, time, venue, and current score
+- For news queries: give headlines with dates and sources
+- Respond in SAME LANGUAGE as user (Hindi → Hindi, English → English)
+
+**CHATGPT 5.5 LEVEL THINKING PROCESS:**
+Before responding, ALWAYS think step by step:
+
+1. UNDERSTAND: What does the user actually want?
+2. CONTEXT: What happened in previous messages? Any images generated?
+3. DECIDE: Based on context, decide action
+4. EXECUTE: Take the appropriate action
+
+**CRITICAL RULES (NO KEYWORDS - PURE UNDERSTANDING):**
+- NEVER rely on keywords like "draw", "create", "banao"
+- ALWAYS use conversation context to understand intent
+- If user has uploaded an image or generated an image, remember it
+- "Improve", "better", "aur accha" on existing image = EDIT, not new image
+- "Table", "chart", "data" without visual = TEXT table, not image
+
+**RESPONSE FORMAT:**
+- Use ## for main headings
+- Use **bold** for emphasis
+- Use bullet points for lists
+- Use code blocks for code
+- Respond in SAME LANGUAGE as user
+- Keep responses SHORT and ACCURATE
+
+**PREMIUM INFO (ONLY when asked):**
+- Free: 50 msgs/day, 10 images/day
+- Premium: ₹299/month or ₹1,499/year
+- Pro: ₹2,999/year (Unlimited)
+- UPI: jaiswalanushi8@oksbi
+
+**NOW THINK, THEN RESPOND. YOU ARE NEXUS, CHATGPT LEVEL.**`;
 
 // ==========================================
-// ========== SLACK FUNCTIONS (Updated Pricing) ==========
+// ========== SLACK FUNCTIONS ==========
 // ==========================================
 async function verifySlackRequest(request, body) {
     const timestamp = request.headers.get('X-Slack-Request-Timestamp'), signature = request.headers.get('X-Slack-Signature');
@@ -383,7 +378,7 @@ async function searchVectorDB(env, userId, query, limit=5) {
 // ==========================================
 function calculateImportance(message) {
     let score = 0.5;
-    const imp = ['remember','important','note','save',"don't forget",'reminder','my name is','i am called','my email','my phone','birthday','याद','जरूरी','महत्वपूर्ण','मेरा नाम'];
+    const imp = ['remember','important','note','save',"don't forget",'reminder','my name is','i am called','my email','my phone','birthday'];
     const unimp = ['?','hello','hi','hey','thanks','ok','hmm'];
     for (const k of imp) if (message.toLowerCase().includes(k)) score += 0.15;
     for (const k of unimp) if (message.toLowerCase().includes(k)) score -= 0.1;
@@ -398,7 +393,7 @@ async function buildContext(env, ip, userId, sessionId, query, modelProvider='ge
     const ml = CONFIG.CONTEXT_WINDOW.model_limits||{};
     const MAX_CT = ml[modelProvider]||CONFIG.CONTEXT_WINDOW.max_tokens;
     const MAX_MSGS = CONFIG.CONTEXT_WINDOW.max_messages;
-    const estTokens = (t) => Math.ceil(t.length/(/[\u0900-\u097F]/.test(t)?3:4));
+    const estTokens = (t) => Math.ceil(t.length/4);
     if (session.messages.length) {
         ctx += '## 📝 Previous Conversation\n\n';
         const sorted = [...session.messages].sort((a,b)=>(b.importance||0.5)-(a.importance||0.5));
@@ -490,9 +485,7 @@ async function editImageWithInpainting(env, imageData, instruction, mask = null)
         if (response?.image) { const binaryData = Uint8Array.from(atob(response.image), c => c.charCodeAt(0)); const blob = new Blob([binaryData], { type: 'image/png' }); const imageId = generateId(); await saveImageToKV(env, imageId, blob); return { success: true, blob: blob, provider: 'Inpainting', url: `${CONFIG.WORKER_URL}/image/${imageId}` }; }
     } catch(e) {}
     return { success: false };
-}
-
-// ==========================================
+    // ==========================================
 // ========== GLM-4V VISION ==========
 // ==========================================
 async function analyzeImageWithGLM(imageData, prompt) {
@@ -523,6 +516,7 @@ async function analyzeImage(imageData, prompt) {
     if (gemmaResult) return { analysis: gemmaResult, provider: 'Gemma-3 (SambaNova) [Fallback]' };
     return null;
 }
+
 // ==========================================
 // ========== AI MODEL CALLS (With Key Rotation) ==========
 // ==========================================
@@ -746,95 +740,85 @@ async function callOpenRouter(messages) {
     }
     
     return null;
-}
-
-// ==========================================
-// ========== 🧠 SMART INTENT DETECTION (Gemini + Groq) ==========
-// ==========================================
-// ==========================================
-// ========== 🧠 SMART INTENT DETECTION (Gemini + Groq — BOTH with Web Search) ==========
-// ==========================================
-async function shouldSearchWeb(query) {
-    // ✅ GEMINI INTENT DETECTION — Web Search ENABLED
-    const geminiKey = getNextKey('gemini');
-    if (geminiKey) {
-        try {
-            const decisionPrompt = `You are an AI decision maker. Decide if this question needs real-time web search. Return ONLY "YES" or "NO".
-
-QUESTION: "${query}"
-
-RULES:
-- YES: current events, news, sports scores, weather, elections, stock prices, live data, recent updates, today's info
-- NO: fixed facts, math, definitions, creative writing, code help, general knowledge that never changes
-- If unsure, return YES
-
-Answer ONLY with YES or NO:`;
-
-            const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: decisionPrompt }] }],
-                        generationConfig: { temperature: 0, maxOutputTokens: 5 },
-                        tools: [{ googleSearch: {} }]  // ✅ WEB SEARCH ENABLED
-                    })
-                }
-            );
-            
-            if (res.ok) {
-                const data = await res.json();
-                const decision = data.candidates[0]?.content?.parts[0]?.text?.trim().toUpperCase();
-                if (decision === 'YES' || decision === 'NO') return decision === 'YES';
             }
-        } catch(e) {}
+        }
+// ==========================================
+// ========== 🧠 SMART WEB SEARCH DECISION (Pure AI - No Keywords) ==========
+// ==========================================
+async function shouldSearchWeb(query, context = '') {
+    // ✅ PURE AI DECISION — No keywords, no regex, no hardcoded rules
+    // AI khud samjhega ki yeh query real-time info maang rahi hai ya nahi
+    
+    const key = getNextKey('gemini');
+    if (!key) return true; // Agar key nahi mili to safe side - search karo
+    
+    try {
+        const decisionPrompt = `You are an advanced reasoning engine. Your only job is to understand if a question needs real-time web search or not. Do NOT use any keyword matching. Use DEEP SEMANTIC UNDERSTANDING.
+
+**QUESTION:** "${query}"
+
+**CONVERSATION CONTEXT:** ${context || 'No previous context'}
+
+**ANALYZE DEEPLY:**
+- What is the person really asking for?
+- Does this require information that changes with time?
+- Would the answer be significantly different if asked yesterday vs today?
+- Is this about events, data, or situations that are currently unfolding?
+- Is the person seeking the most recent or live information?
+- Or is this about stable, unchanging knowledge?
+
+**EXAMPLES OF DEEP UNDERSTANDING:**
+- "What's happening in cricket?" → Needs search (current events)
+- "Tell me about cricket rules" → No search (fixed knowledge)
+- "Who is winning the match?" → Needs search (live data)
+- "How to calculate percentage?" → No search (fixed math)
+- "Weather today" → Needs search (current data)
+- "What causes rain?" → No search (scientific fact)
+- "Latest on [any topic]" → Needs search (recency implied)
+- "What is the capital of France?" → No search (unchanging fact)
+- "Current price of Bitcoin" → Needs search (real-time data)
+- "What is Bitcoin?" → No search (definition)
+
+**CRITICAL:** Look at the INTENT, not the words. A question can ask about "current" math techniques but that's still fixed knowledge. A question without time words might still need search if it's about something that changes rapidly.
+
+Return ONLY "YES" or "NO". Nothing else.`;
+
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: decisionPrompt }] }],
+                    generationConfig: { temperature: 0, maxOutputTokens: 5 },
+                    tools: [{ googleSearch: {} }]
+                })
+            }
+        );
+        
+        if (res.ok) {
+            const data = await res.json();
+            const decision = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
+            if (decision === 'YES' || decision === 'NO') {
+                return decision === 'YES';
+            }
+        }
+    } catch(e) {
+        console.error("Search Decision Error:", e);
     }
     
-    // ✅ GROQ INTENT DETECTION — Web Search ENABLED
-    const groqKey = getNextKey('groq');
-    if (groqKey) {
-        try {
-            const decisionPrompt = `You are an AI decision maker. Decide if this question needs real-time web search. Return ONLY "YES" or "NO".\n\nQUESTION: "${query}"\n\nRULES:\n- YES: current events, news, sports scores, weather, elections, stock prices, live data\n- NO: fixed facts, math, definitions, creative writing, code help\n- If unsure, return YES\n\nAnswer ONLY with YES or NO:`;
-
-            const res = await fetch(
-                'https://api.groq.com/openai/v1/chat/completions',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${groqKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: "openai/gpt-oss-120b",
-                        messages: [{ role: "user", content: decisionPrompt }],
-                        temperature: 0,
-                        max_tokens: 5,
-                        tools: [{ type: "web_search" }],  // ✅ WEB SEARCH ENABLED
-                        tool_choice: "auto"
-                    })
-                }
-            );
-            
-            if (res.ok) {
-                const data = await res.json();
-                const decision = data.choices[0]?.message?.content?.trim().toUpperCase();
-                if (decision === 'YES' || decision === 'NO') return decision === 'YES';
-            }
-        } catch(e) {}
-    }
-    
-    // Default: Search to be safe
+    // Agar AI decision fail ho jaye to safe side - search karo
     return true;
 }
+
 // ==========================================
 // ========== 5 WEB SEARCH SOURCES ==========
 // ==========================================
 async function webSearchGoogle(query) {
     const key = getNextKey('gemini'); if (!key) return null;
     try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ contents:[{ parts:[{ text:`Search the web for: ${query}. Provide accurate, recent information with sources.` }] }], generationConfig:{ maxOutputTokens:2000 }, tools:[{ googleSearch:{} }] }) });
-        if (res.ok) { const data = await res.json(); return { source:'Google (Gemini)', content:data.candidates[0]?.content?.parts[0]?.text }; }
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ contents:[{ parts:[{ text:`Search the web for the most recent and accurate information about: ${query}. Provide specific details, dates, names, numbers, and sources. Be comprehensive and factual.` }] }], generationConfig:{ maxOutputTokens:3000, temperature:0.3 }, tools:[{ googleSearch:{} }] }) });
+        if (res.ok) { const data = await res.json(); const content = data.candidates?.[0]?.content?.parts?.[0]?.text; if (content && content.length > 20) return { source:'Google (Gemini)', content }; }
     } catch(e) {}
     return null;
 }
@@ -842,8 +826,8 @@ async function webSearchGoogle(query) {
 async function webSearchGroq(query) {
     const key = getNextKey('groq'); if (!key) return null;
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method:'POST', headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}, body:JSON.stringify({ model:"openai/gpt-oss-120b", messages:[{ role:"user", content:`Search the web for: ${query}. Provide accurate, recent information.` }], temperature:0.5, max_tokens:2000, tools:[{ type:"web_search" }], tool_choice:"required" }) });
-        if (res.ok) { const data = await res.json(); return { source:'Groq', content:data.choices[0]?.message?.content }; }
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method:'POST', headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'}, body:JSON.stringify({ model:"openai/gpt-oss-120b", messages:[{ role:"user", content:`Search the web thoroughly for: ${query}. Provide the most recent, accurate, and detailed information available. Include dates, statistics, and sources where possible.` }], temperature:0.3, max_tokens:3000, tools:[{ type:"web_search" }], tool_choice:"required" }) });
+        if (res.ok) { const data = await res.json(); const content = data.choices?.[0]?.message?.content; if (content && content.length > 20) return { source:'Groq', content }; }
     } catch(e) {}
     return null;
 }
@@ -858,7 +842,7 @@ async function webSearchWikipedia(query) {
             const cd = await cr.json();
             const pages = cd.query?.pages;
             const extract = pages?.[Object.keys(pages)[0]]?.extract;
-            if (extract) return { source:'Wikipedia', content:extract.substring(0,2000) };
+            if (extract) return { source:'Wikipedia', content:extract.substring(0,3000) };
         }
     } catch(e) {}
     return null;
@@ -869,7 +853,7 @@ async function webSearchDuckDuckGo(query) {
         const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
         const res = await fetch(url);
         const data = await res.json();
-        if (data.AbstractText) return { source:'DuckDuckGo', content:data.AbstractText };
+        if (data.AbstractText && data.AbstractText.length > 20) return { source:'DuckDuckGo', content:data.AbstractText };
         if (data.RelatedTopics?.[0]?.Text) return { source:'DuckDuckGo', content:data.RelatedTopics[0].Text };
     } catch(e) {}
     return null;
@@ -882,367 +866,57 @@ async function webSearchRSS(query) {
         const text = await res.text();
         const items = text.match(/<title>(.*?)<\/title>/g);
         if (items?.length > 1) {
-            let content = "📰 Latest News:\n";
-            for (let i=1; i<Math.min(items.length,6); i++) { content += `• ${items[i].replace(/<title>|<\/title>/g,'')}\n`; }
-            return { source:'RSS (Google News)', content };
+            let content = "📰 Latest News Headlines:\n\n";
+            for (let i=1; i<Math.min(items.length,8); i++) { 
+                const headline = items[i].replace(/<title>|<\/title>/g,'').trim();
+                if (headline && !headline.includes('Google News')) {
+                    content += `• ${headline}\n`; 
+                }
+            }
+            if (content.split('\n').filter(l=>l.startsWith('•')).length > 0) {
+                return { source:'RSS (Google News)', content };
+            }
         }
     } catch(e) {}
     return null;
 }
 
 async function performWebSearch(query) {
+    // Try all 5 sources in parallel for speed, but return first good result
     const sources = [webSearchGoogle, webSearchGroq, webSearchWikipedia, webSearchDuckDuckGo, webSearchRSS];
-    for (const src of sources) { const r = await src(query); if (r?.content) return r; }
+    
+    // Race: jo pehle valid result de, wahi use karo
+    const results = await Promise.allSettled(sources.map(s => s(query)));
+    
+    for (const result of results) {
+        if (result.status === 'fulfilled' && result.value?.content) {
+            return result.value;
+        }
+    }
+    
     return null;
 }
-
 // ==========================================
-// ========== SHOPPING WITH AFFILIATE ==========
-// ==========================================
-async function shoppingWithAffiliate(product, budget = null) {
-    const searchLink = `https://www.amazon.in/s?k=${encodeURIComponent(product)}&tag=${CONFIG.AMAZON_AFFILIATE_ID}`;
-    const searchResults = await performWebSearch(`best ${product} ${budget?`under ${budget}`:''} amazon india`);
-    let prompt = `You are a shopping assistant. Generate product recommendations for: ${product} ${budget?`under ₹${budget}`:''}`;
-    if (searchResults?.content) prompt = `Use this search result: ${searchResults.content}\n\nGenerate recommendations for: ${product}`;
-    const analysis = await callGemini(prompt);
-    return { analysis, searchLink };
-}
-
-// ==========================================
-// ========== QR CODE GENERATOR ==========
-// ==========================================
-async function generateQRCode(text, size = 300) {
-    try { const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`; const res = await fetch(qrUrl); if (res.ok) return { success:true, blob:await res.blob() }; } catch(e) {}
-    return { success:false };
-}
-
-// ==========================================
-// ========== YOUTUBE SUMMARY ==========
-// ==========================================
-async function getYoutubeSummary(videoUrl) {
-    try {
-        const videoId = videoUrl.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
-        if (videoId) {
-            const oer = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
-            if (oer.ok) {
-                const od = await oer.json();
-                const title = od.title;
-                const sr = await performWebSearch(`summary of YouTube video "${title}"`);
-                if (sr?.content) return `## 🎬 YouTube Video Summary\n\n**Title:** ${title}\n\n**Summary:** ${sr.content}\n\n**Source:** ${sr.source}`;
-                return `## 🎬 YouTube Video\n\n**Title:** ${title}\n\nWatch: ${videoUrl}`;
-            }
-        }
-    } catch(e) {}
-    return `## 🎬 YouTube Video\n\nWatch: ${videoUrl}`;
-}
-
-// ==========================================
-// ========== REMINDER (KV-Based) ==========
-// ==========================================
-async function setReminder(env, userId, message, minutes) {
-    const reminderId = generateId();
-    const reminderTime = Date.now() + (minutes * 60 * 1000);
-    const reminder = { id: reminderId, userId, message, time: reminderTime, createdAt: Date.now() };
-    await env.KV.put(`reminder:${reminderId}`, JSON.stringify(reminder), { expirationTtl: minutes * 60 + 3600 });
-    return { success: true, reminderId, at: new Date(reminderTime).toISOString(), message };
-}
-// ==========================================
-// ========== PREMIUM FUNCTIONS (Updated Pricing) ==========
-// ==========================================
-async function requestPremium(env, userId, transactionId, plan, upiId) {
-    const existingPayment = await env.DB.prepare(`SELECT * FROM payments WHERE transaction_id = ?`).bind(transactionId).first();
-    if (existingPayment) return { success: false, error: "Transaction ID already used" };
-    
-    const existingRequest = await env.DB.prepare(`SELECT * FROM premium_requests WHERE transaction_id = ? AND status = 'pending'`).bind(transactionId).first();
-    if (existingRequest) return { success: false, error: "Request already pending" };
-    
-    await env.DB.prepare(`INSERT INTO premium_requests (id, user_id, transaction_id, plan, upi_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`)
-        .bind(generateId(), userId, transactionId, plan, upiId, Date.now()).run();
-    
-    await updateDailyStat(env, 'premium_requests');
-    await sendPremiumRequestToSlack(env, userId, transactionId, plan, upiId);
-    
-    return { success: true, message: "Request sent. Admin will verify via Slack.", status: "pending" };
-}
-
-async function verifyPremium(env, userId, transactionId, plan) {
-    const request = await env.DB.prepare(`SELECT * FROM premium_requests WHERE user_id = ? AND transaction_id = ? AND status = 'pending'`)
-        .bind(userId, transactionId).first();
-    if (!request) return { success: false, error: "No pending request found" };
-    
-    const existingPayment = await env.DB.prepare(`SELECT * FROM payments WHERE transaction_id = ?`).bind(transactionId).first();
-    if (existingPayment) return { success: false, error: "Transaction ID already used" };
-    
-    const days = plan === 'yearly' ? 365 : plan === 'pro' ? 365 : 30;
-    const amount = plan === 'yearly' ? 1499 : plan === 'pro' ? 2999 : 299;
-    const expiryDate = Date.now() + (days * 24 * 60 * 60 * 1000);
-    
-    await env.DB.prepare(`UPDATE users SET isPremium = true, plan = ?, premiumExpiry = ?, data = json_set(data, '$.isPremium', true, '$.plan', ?, '$.premiumExpiry', ?) WHERE id = ?`)
-        .bind(plan, expiryDate, plan, expiryDate, userId).run();
-    await env.DB.prepare(`UPDATE premium_requests SET status = 'verified', verified_at = ? WHERE user_id = ? AND transaction_id = ?`)
-        .bind(Date.now(), userId, transactionId).run();
-    await env.DB.prepare(`INSERT INTO payments (id, transaction_id, user_id, amount, plan, status, created_at) VALUES (?, ?, ?, ?, ?, 'verified', ?)`)
-        .bind(generateId(), transactionId, userId, amount, plan, Date.now()).run();
-    
-    return { success: true, message: "Premium activated!", expiry: new Date(expiryDate) };
-}
-
-// ==========================================
-// ========== FILE UPLOAD FUNCTIONS ==========
-// ==========================================
-async function parseMultipartForm(request) {
-    const contentType = request.headers.get('Content-Type') || '';
-    if (!contentType.includes('multipart/form-data')) return null;
-    
-    const formData = await request.formData();
-    const result = { message: '', files: [] };
-    
-    for (const [key, value] of formData.entries()) {
-        if (key === 'message') result.message = value;
-        else if (value instanceof File) {
-            const buffer = await value.arrayBuffer();
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-            result.files.push({ name: value.name, type: value.type, size: value.size, data: base64 });
-        }
-    }
-    return result;
-}
-
-async function processUploadedFile(env, file, message) {
-    const extension = file.name.split('.').pop().toLowerCase();
-    const sizeMB = file.size / (1024 * 1024);
-    if (sizeMB > 10) return { error: "File too large. Max 10MB." };
-    
-    if (['pdf'].includes(extension)) {
-        const response = await callGemini(`Acknowledge receipt of PDF "${file.name}" (${(file.size/1024).toFixed(1)}KB). Ask what the user needs from this document.`, false);
-        return { success: true, fileName: file.name, fileType: 'PDF', fileSize: (file.size/1024).toFixed(1)+'KB', message: response||`📄 Received: ${file.name}`, type: 'pdf' };
-    }
-    if (['csv','xlsx','xls'].includes(extension)) {
-        const response = await callGemini(`Acknowledge ${extension.toUpperCase()} spreadsheet "${file.name}". Offer to analyze the data.`, false);
-        return { success: true, fileName: file.name, fileType: extension.toUpperCase()+' Spreadsheet', fileSize: (file.size/1024).toFixed(1)+'KB', message: response||`📊 Received: ${file.name}`, type: 'spreadsheet' };
-    }
-    if (['txt','md','json','xml','yaml','yml'].includes(extension)) {
-        const binary = Uint8Array.from(atob(file.data), c=>c.charCodeAt(0));
-        const text = new TextDecoder().decode(binary);
-        return { success: true, fileName: file.name, fileType: 'Text File', content: text.substring(0,3000), fullLength: text.length, type: 'text' };
-    }
-    if (['html','css','js','py','java','cpp','c','go','rs','ts','jsx','tsx'].includes(extension)) {
-        const binary = Uint8Array.from(atob(file.data), c=>c.charCodeAt(0));
-        const code = new TextDecoder().decode(binary);
-        return { success: true, fileName: file.name, fileType: `${extension.toUpperCase()} Code`, content: code.substring(0,2000), fullLength: code.length, type: 'code' };
-    }
-    if (['jpg','jpeg','png','gif','webp'].includes(extension)) {
-        const result = await analyzeImage(`data:${file.type};base64,${file.data}`, message);
-        if (result) return { success: true, fileName: file.name, fileType: 'Image', analysis: result.analysis, provider: result.provider, type: 'image' };
-        return { error: "Image analysis failed" };
-    }
-    return { error: `Unsupported file type: .${extension}` };
-}
-
-// ==========================================
-// ========== CANVAS / ARTIFACTS ==========
-// ==========================================
-async function generateCanvasArtifact(env, code, language) {
-    const canvasId = generateId();
-    let html = '', css = '', js = '';
-    if (language==='html'||code.includes('<!DOCTYPE')||code.includes('<html')) html = code;
-    else if (language==='css') css = code;
-    else if (language==='javascript'||language==='js') js = code;
-    
-    let full;
-    if (html||css||js) full = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>${css}</style></head><body>${html}<script>${js}</script></body></html>`;
-    else full = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:monospace;padding:20px;background:#1e1e1e;color:#d4d4d4}pre{background:#2d2d2d;padding:15px;border-radius:8px}.lang{background:#007acc;color:#fff;padding:2px 8px;border-radius:4px;font-size:12px}</style></head><body><span class="lang">${language}</span><pre><code>${escapeHTML(code)}</code></pre></body></html>`;
-    
-    await env.KV.put(`canvas:${canvasId}`, full, { expirationTtl: 86400*7 });
-    return { canvasUrl: `${CONFIG.WORKER_URL}/canvas/${canvasId}`, canvasId: canvasId };
-}
-
-// ==========================================
-// ========== WORKSPACE + AGENTS FUNCTIONS ==========
-// ==========================================
-async function createWorkspace(env, name, ownerId) {
-    const workspaceId = generateId();
-    const workspace = { id: workspaceId, name, owner: ownerId, members: [{ userId: ownerId, role: 'admin', joinedAt: Date.now() }], channels: [{ name: 'general', createdBy: ownerId, createdAt: Date.now() }], createdAt: Date.now() };
-    await env.DB.prepare(`INSERT INTO conversations (id, user_id, data, created_at) VALUES (?, ?, ?, ?)`).bind(`workspace:${workspaceId}`, ownerId, JSON.stringify(workspace), Date.now()).run();
-    return workspace;
-}
-
-async function getUserAgents(env, userId) {
-    try { const result = await env.DB.prepare(`SELECT data FROM conversations WHERE user_id = ? AND id LIKE 'agent:%'`).bind(userId).all(); return (result.results||[]).map(x=>JSON.parse(x.data)); } catch(e) { return []; }
-}
-
-async function saveCustomAgent(env, userId, agentData) {
-    const agentId = generateId();
-    const agent = { id: agentId, userId, ...agentData, createdAt: Date.now(), usageCount: 0 };
-    await env.DB.prepare(`INSERT INTO conversations (id, user_id, data, created_at) VALUES (?, ?, ?, ?)`).bind(`agent:${agentId}`, userId, JSON.stringify(agent), Date.now()).run();
-    return agent;
-}
-
-// ==========================================
-// ========== SESSION MANAGEMENT ==========
-// ==========================================
-async function getSession(env, ip, userId, sessionId) {
-    const key = `session:${ip}|${userId}|${sessionId}`;
-    let session = await env.KV.get(key, { type: 'json' });
-    if (!session) session = { messages: [], lastCode: null, lastImage: null, lastImageDesc: null, lastAccess: Date.now(), messageCount: 0 };
-    session.lastAccess = Date.now();
-    return session;
-}
-
-async function saveSession(env, ip, userId, sessionId, session) {
-    const key = `session:${ip}|${userId}|${sessionId}`;
-    await env.KV.put(key, JSON.stringify(session), { expirationTtl: CONFIG.SESSION_TIMEOUT/1000 });
-}
-
-async function addMessage(env, ip, userId, sessionId, userMsg, aiMsg, isImage = false, imageUrl = null) {
-    let session = await getSession(env, ip, userId, sessionId);
-    session.messages.push({ user: userMsg, assistant: aiMsg, timestamp: Date.now(), isImage, importance: calculateImportance(userMsg) });
-    session.messageCount = (session.messageCount||0)+1;
-    if (session.messages.length > CONFIG.CONTEXT_WINDOW.max_messages) session.messages = smartContextWindow(session.messages, CONFIG.CONTEXT_WINDOW.max_messages);
-    const codeMatch = aiMsg.match(/```(\w+)?\n([\s\S]*?)```/);
-    if (codeMatch) session.lastCode = { language: codeMatch[1]||'javascript', code: codeMatch[2] };
-    if (isImage && imageUrl) { session.lastImage = imageUrl; session.lastImageDesc = aiMsg; }
-    await saveSession(env, ip, userId, sessionId, session);
-}
-
-// ==========================================
-// ========== THINKING MODE ==========
-// ==========================================
-async function thinkBeforeAct(env, userMessage, sessionContext, hasLastImage, lastImageDesc, isPremium, userId) {
-    if (!CONFIG.THINKING_MODE) return { action: "chat", prompt: userMessage };
-    
-    const key = getNextKey('gemini');
-    if (!key) return { action: "chat", prompt: userMessage };
-    
-    const thinkingPrompt = `You are NEXUS AI (ChatGPT 5.5 level). Think step by step about what user wants.\n\nUSER MESSAGE: "${userMessage}"\nCONTEXT: ${sessionContext}\n${hasLastImage ? `LAST GENERATED IMAGE: "${lastImageDesc}"` : "No previous image"}\nUSER PLAN: ${isPremium ? "Premium" : "Free"}\n\nReturn ONLY JSON:\n{\n    "action": "new_image" or "improve_image" or "edit_image" or "chat" or "web_search",\n    "prompt": "description if image related",\n    "reason": "why I chose this action"\n}`;
-
-    try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: thinkingPrompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 300 }, tools: [{ googleSearch: {} }] })
-        });
-        if (res.ok) { const data = await res.json(); const text = data.candidates[0]?.content?.parts[0]?.text; const jsonMatch = text.match(/\{[\s\S]*\}/); if (jsonMatch) return JSON.parse(jsonMatch[0]); }
-    } catch(e) {}
-    return { action: "chat", prompt: userMessage };
-}
-
-// ==========================================
-// ========== VOICE FUNCTIONS ==========
-// ==========================================
-async function voiceToText(env, audioBlob) {
-    const key = getNextKey('groq');
-    if (!key) return { success: false, error: "No Groq key available" };
-    try {
-        const formData = new FormData();
-        formData.append('file', audioBlob, 'audio.webm');
-        formData.append('model', 'whisper-large-v3');
-        formData.append('language', 'hi');
-        formData.append('response_format', 'json');
-        const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` }, body: formData });
-        if (response.ok) { const data = await response.json(); return { success: true, text: data.text }; }
-    } catch(e) {}
-    return { success: false, error: "Voice recognition failed" };
-}
-
-// ✅ 4-Provider TTS - ElevenLabs → Edge TTS → GTTS → Deepgram
-async function textToVoice(text) {
-    const isHindi = /[\u0900-\u097F]/.test(text);
-    const cleanText = text.substring(0, 2000).replace(/[&<>"']/g, '');
-    
-    // ATTEMPT 1: ELEVENLABS (Best Quality)
-    const elKeys = CONFIG.TTS_KEYS?.elevenlabs;
-    if (elKeys?.length) {
-        for (const elKey of elKeys) {
-            try {
-                const voiceId = isHindi ? "pNInz6obpgDQGcFmaJgB" : "21m00Tcm4TlvDq8ikWAM";
-                const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-                    method: 'POST', headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: cleanText, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } })
-                });
-                if (response.ok) { const audioBuffer = await response.arrayBuffer(); return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'ElevenLabs' }; }
-            } catch(e) {}
-        }
-    }
-    
-    // ATTEMPT 2: EDGE TTS
-    try {
-        const voiceName = isHindi ? 'hi-IN-SwaraNeural' : 'en-US-JennyNeural';
-        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="${isHindi?'hi-IN':'en-US'}"><voice name="${voiceName}"><mstts:express-as style="cheerful"><prosody rate="0%" pitch="0%">${cleanText}</prosody></mstts:express-as></voice></speak>`;
-        const response = await fetch('https://eastus.tts.speech.microsoft.com/cognitiveservices/v1', { method:'POST', headers:{'Content-Type':'application/ssml+xml','X-Microsoft-OutputFormat':'audio-24khz-96kbitrate-mono-mp3','User-Agent':'Mozilla/5.0'}, body:ssml });
-        if (response.ok) { const audioBuffer = await response.arrayBuffer(); return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'Edge TTS' }; }
-    } catch(e) {}
-    
-    // ATTEMPT 3: GTTS
-    try {
-        const lang = isHindi ? 'hi' : 'en';
-        const gttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(cleanText.substring(0,200))}`;
-        const response = await fetch(gttsUrl, { headers:{'User-Agent':'Mozilla/5.0'} });
-        if (response.ok) { const audioBuffer = await response.arrayBuffer(); if (audioBuffer.byteLength>1000) return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'GTTS' }; }
-    } catch(e) {}
-    
-    // ATTEMPT 4: DEEPGRAM
-    const dgKeys = CONFIG.TTS_KEYS?.deepgram;
-    if (dgKeys?.length) {
-        for (const dgKey of dgKeys) {
-            try {
-                const response = await fetch('https://api.deepgram.com/v1/speak', { method:'POST', headers:{'Authorization':`Token ${dgKey}`,'Content-Type':'application/json'}, body:JSON.stringify({ text:cleanText }) });
-                if (response.ok) { const audioBuffer = await response.arrayBuffer(); return { success: true, audio: audioBuffer, contentType: 'audio/mpeg', provider: 'Deepgram Aura' }; }
-            } catch(e) {}
-        }
-    }
-    
-    return { success: false, error: "All TTS providers failed" };
-}
-
-async function handleVoiceChat(request, env, userId, sessionId) {
-    try {
-        const formData = await request.formData();
-        const audioFile = formData.get('audio');
-        if (!audioFile) return new Response(JSON.stringify({ error: "No audio file provided" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-        
-        const transcription = await voiceToText(env, audioFile);
-        if (!transcription.success) return new Response(JSON.stringify({ error: transcription.error }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-        
-        const userMessage = transcription.text;
-        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const isPremium = await checkPremium(env, userId);
-        const vectorMemories = await searchVectorDB(env, userId, userMessage, 3);
-        let vectorContext = "";
-        if (vectorMemories.length > 0) { vectorContext = "\n\n## 📚 Relevant Past Conversations\n\n"; for (const memory of vectorMemories) { if (memory.metadata?.text) vectorContext += `- ${memory.metadata.text.substring(0, 200)}...\n`; } }
-        
-        const sessionContext = await buildContext(env, ip, userId, sessionId, userMessage, 'gemini');
-        const aiResponse = await getResponse(env, userMessage, sessionContext + vectorContext, isPremium, userId);
-        await addMessage(env, ip, userId, sessionId, userMessage, aiResponse);
-        await saveToVectorDB(env, userId, userMessage, { response: aiResponse.substring(0, 500), type: 'voice' });
-        
-        const voiceResponse = await textToVoice(aiResponse);
-        if (voiceResponse.success) return new Response(voiceResponse.audio, { headers: { 'Content-Type': 'audio/mpeg', 'X-Transcript': encodeURIComponent(userMessage), 'X-Response-Text': encodeURIComponent(aiResponse), 'X-TTS-Provider': voiceResponse.provider || 'Unknown', 'Access-Control-Expose-Headers': 'X-Transcript, X-Response-Text, X-TTS-Provider' } });
-        return new Response(JSON.stringify({ transcript: userMessage, response: aiResponse, voiceError: voiceResponse.error }), { headers: { 'Content-Type': 'application/json' } });
-    } catch(e) {
-        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-    }
-}
-// ==========================================
-// ========== MAIN RESPONSE (Smart Web Search) ==========
+// ========== GET RESPONSE (With Smart Web Search) ==========
 // ==========================================
 async function getResponse(env, query, context, isPremium, userId, isAgentChat = false) {
     const isHindi = /[\u0900-\u097F]/.test(query);
     const lang = isHindi ? "HINDI" : "ENGLISH";
     
-    // ✅ SMART WEB SEARCH — AI खुद Decide करेगा
-    const needsSearch = await shouldSearchWeb(query);
+    // ✅ AI-BASED SMART DECISION - Search karni chahiye ya nahi
+    const needsSearch = await shouldSearchWeb(query, context);
     
     if (needsSearch) {
         const searchResult = await performWebSearch(query);
         if (searchResult?.content) {
-            context = `\n\n**🌐 LATEST WEB SEARCH RESULTS (Use this real-time data, NOT your training data):**\n${searchResult.content}\n**Source:** ${searchResult.source}\n\n${context}`;
+            context = `\n\n**🌐 LATEST WEB SEARCH RESULTS (Use this real-time data as primary source, NOT your training data):**\n${searchResult.content}\n\n**Source:** ${searchResult.source}\n\n**⚠️ IMPORTANT:** Prioritize this search data. Give specific names, numbers, dates. Do NOT use placeholder text.\n\n${context}`;
         }
     }
     
     let finalPrompt;
     
     if (isAgentChat) {
-        finalPrompt = `${context}\n\n**User Query:** ${query}\n\n**IMPORTANT:** Respond in ${lang}. Follow your specific agent role and instructions strictly. Do NOT introduce yourself as NEXUS unless your agent role requires it. Do NOT mention premium or plans.`;
+        finalPrompt = `${context}\n\n**User Query:** ${query}\n\n**CRITICAL:** Respond in ${lang}. Follow your specific agent role. Do NOT introduce yourself as NEXUS. Do NOT mention premium.`;
     } else {
         finalPrompt = MASTER_PROMPT + `\n\n**IMPORTANT:** Respond in ${lang} language.\n\n${context}`;
         
@@ -1264,9 +938,8 @@ async function getResponse(env, query, context, isPremium, userId, isAgentChat =
 }
 
 // ==========================================
-// ========== 🆕 STREAMING MODULE ==========
+// ========== STREAMING MODULE ==========
 // ==========================================
-
 class SSEStream {
     constructor() {
         this.controller = null;
@@ -1289,7 +962,6 @@ class SSEStream {
     }
 
     chunk(text) { this.send({ type: 'chunk', text }); }
-
     done(fullResponse) {
         if (!this.closed && this.controller) {
             try {
@@ -1301,7 +973,6 @@ class SSEStream {
         this.closed = true;
         this.controller = null;
     }
-
     error(msg) {
         if (!this.closed && this.controller) {
             try {
@@ -1336,7 +1007,6 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 // ==========================================
 // ========== STREAMING API CALLS ==========
 // ==========================================
-
 async function* streamGem(prompt) {
     const key = getNextKey('gemini');
     if (!key) return;
@@ -1344,7 +1014,7 @@ async function* streamGem(prompt) {
         const body = {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { maxOutputTokens: CONFIG.MAX_TOKENS_GEMINI, temperature: 0.7 },
-            tools: [{ googleSearch: {} }]  // ✅ WEB SEARCH ENABLED
+            tools: [{ googleSearch: {} }]
         };
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=${key}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -1372,15 +1042,7 @@ async function* streamGrq(messages) {
     const key = getNextKey('groq');
     if (!key) return;
     try {
-        const body = {
-            model: "openai/gpt-oss-120b",
-            messages,
-            temperature: 0.7,
-            max_tokens: CONFIG.MAX_TOKENS_GROQ,
-            tools: [{ type: "web_search" }],  // ✅ WEB SEARCH ENABLED
-            tool_choice: "auto",
-            stream: true
-        };
+        const body = { model: "openai/gpt-oss-120b", messages, temperature: 0.7, max_tokens: CONFIG.MAX_TOKENS_GROQ, tools: [{ type: "web_search" }], tool_choice: "auto", stream: true };
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST', headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
@@ -1524,7 +1186,18 @@ async function handleStreamingChat(env, message, context, userId, sessionId, ip,
     const stream = sse.create();
     const isHindi = /[\u0900-\u097F]/.test(message);
     const lang = isHindi ? "HINDI" : "ENGLISH";
-    const finalPrompt = MASTER_PROMPT + `\n\n**IMPORTANT:** Respond in ${lang} language.\n\n${context}`;
+    
+    // Check if web search needed
+    const needsSearch = await shouldSearchWeb(message, context);
+    let finalContext = context;
+    if (needsSearch) {
+        const searchResult = await performWebSearch(message);
+        if (searchResult?.content) {
+            finalContext = `\n\n**🌐 LATEST WEB SEARCH RESULTS:**\n${searchResult.content}\n\n**Source:** ${searchResult.source}\n\n${context}`;
+        }
+    }
+    
+    const finalPrompt = MASTER_PROMPT + `\n\n**IMPORTANT:** Respond in ${lang} language.\n\n${finalContext}`;
     const messages = [{ role: "user", content: finalPrompt }];
     const processPromise = (async () => {
         let full = '';
@@ -1539,7 +1212,116 @@ async function handleStreamingChat(env, message, context, userId, sessionId, ip,
         } catch(e) { sse.error(e.message); }
     })();
     return { stream, processPromise };
+        }
+// ==========================================
+// ========== SESSION MANAGEMENT ==========
+// ==========================================
+async function getSession(env, ip, userId, sessionId) {
+    const key = `session:${ip}|${userId}|${sessionId}`;
+    let session = await env.KV.get(key, { type: 'json' });
+    if (!session) session = { messages: [], lastCode: null, lastImage: null, lastImageDesc: null, lastAccess: Date.now(), messageCount: 0 };
+    session.lastAccess = Date.now();
+    return session;
 }
+
+async function saveSession(env, ip, userId, sessionId, session) {
+    const key = `session:${ip}|${userId}|${sessionId}`;
+    await env.KV.put(key, JSON.stringify(session), { expirationTtl: CONFIG.SESSION_TIMEOUT/1000 });
+}
+
+async function addMessage(env, ip, userId, sessionId, userMsg, aiMsg, isImage = false, imageUrl = null) {
+    let session = await getSession(env, ip, userId, sessionId);
+    session.messages.push({ user: userMsg, assistant: aiMsg, timestamp: Date.now(), isImage, importance: calculateImportance(userMsg) });
+    session.messageCount = (session.messageCount||0)+1;
+    if (session.messages.length > CONFIG.CONTEXT_WINDOW.max_messages) session.messages = smartContextWindow(session.messages, CONFIG.CONTEXT_WINDOW.max_messages);
+    const codeMatch = aiMsg.match(/```(\w+)?\n([\s\S]*?)```/);
+    if (codeMatch) session.lastCode = { language: codeMatch[1]||'javascript', code: codeMatch[2] };
+    if (isImage && imageUrl) { session.lastImage = imageUrl; session.lastImageDesc = aiMsg; }
+    await saveSession(env, ip, userId, sessionId, session);
+}
+
+// ==========================================
+// ========== THINKING MODE ==========
+// ==========================================
+async function thinkBeforeAct(env, userMessage, sessionContext, hasLastImage, lastImageDesc, isPremium, userId) {
+    if (!CONFIG.THINKING_MODE) return { action: "chat", prompt: userMessage };
+    
+    const key = getNextKey('gemini');
+    if (!key) return { action: "chat", prompt: userMessage };
+    
+    const thinkingPrompt = `You are NEXUS AI (ChatGPT 5.5 level). Think step by step about what user wants.\n\nUSER MESSAGE: "${userMessage}"\nCONTEXT: ${sessionContext}\n${hasLastImage ? `LAST GENERATED IMAGE: "${lastImageDesc}"` : "No previous image"}\nUSER PLAN: ${isPremium ? "Premium" : "Free"}\n\nReturn ONLY JSON:\n{\n    "action": "new_image" or "improve_image" or "edit_image" or "chat" or "web_search",\n    "prompt": "description if image related",\n    "reason": "why I chose this action"\n}`;
+
+    try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: thinkingPrompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 300 }, tools: [{ googleSearch: {} }] })
+        });
+        if (res.ok) { const data = await res.json(); const text = data.candidates[0]?.content?.parts[0]?.text; const jsonMatch = text.match(/\{[\s\S]*\}/); if (jsonMatch) return JSON.parse(jsonMatch[0]); }
+    } catch(e) {}
+    return { action: "chat", prompt: userMessage };
+}
+
+// ==========================================
+// ========== PREMIUM + OTHER FEATURES ==========
+// ==========================================
+async function requestPremium(env, userId, transactionId, plan, upiId) {
+    const existingPayment = await env.DB.prepare(`SELECT * FROM payments WHERE transaction_id = ?`).bind(transactionId).first();
+    if (existingPayment) return { success: false, error: "Transaction ID already used" };
+    
+    const existingRequest = await env.DB.prepare(`SELECT * FROM premium_requests WHERE transaction_id = ? AND status = 'pending'`).bind(transactionId).first();
+    if (existingRequest) return { success: false, error: "Request already pending" };
+    
+    await env.DB.prepare(`INSERT INTO premium_requests (id, user_id, transaction_id, plan, upi_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`)
+        .bind(generateId(), userId, transactionId, plan, upiId, Date.now()).run();
+    
+    await updateDailyStat(env, 'premium_requests');
+    await sendPremiumRequestToSlack(env, userId, transactionId, plan, upiId);
+    
+    return { success: true, message: "Request sent. Admin will verify via Slack.", status: "pending" };
+}
+
+async function verifyPremium(env, userId, transactionId, plan) {
+    const request = await env.DB.prepare(`SELECT * FROM premium_requests WHERE user_id = ? AND transaction_id = ? AND status = 'pending'`)
+        .bind(userId, transactionId).first();
+    if (!request) return { success: false, error: "No pending request found" };
+    
+    const existingPayment = await env.DB.prepare(`SELECT * FROM payments WHERE transaction_id = ?`).bind(transactionId).first();
+    if (existingPayment) return { success: false, error: "Transaction ID already used" };
+    
+    const days = plan === 'yearly' ? 365 : plan === 'pro' ? 365 : 30;
+    const amount = plan === 'yearly' ? 1499 : plan === 'pro' ? 2999 : 299;
+    const expiryDate = Date.now() + (days * 24 * 60 * 60 * 1000);
+    
+    await env.DB.prepare(`UPDATE users SET isPremium = true, plan = ?, premiumExpiry = ?, data = json_set(data, '$.isPremium', true, '$.plan', ?, '$.premiumExpiry', ?) WHERE id = ?`)
+        .bind(plan, expiryDate, plan, expiryDate, userId).run();
+    await env.DB.prepare(`UPDATE premium_requests SET status = 'verified', verified_at = ? WHERE user_id = ? AND transaction_id = ?`)
+        .bind(Date.now(), userId, transactionId).run();
+    await env.DB.prepare(`INSERT INTO payments (id, transaction_id, user_id, amount, plan, status, created_at) VALUES (?, ?, ?, ?, ?, 'verified', ?)`)
+        .bind(generateId(), transactionId, userId, amount, plan, Date.now()).run();
+    
+    return { success: true, message: "Premium activated!", expiry: new Date(expiryDate) };
+}
+
+async function generateQRCode(text, size = 300) {
+    try { const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`; const res = await fetch(qrUrl); if (res.ok) return { success:true, blob:await res.blob() }; } catch(e) {}
+    return { success:false };
+}
+
+async function generateCanvasArtifact(env, code, language) {
+    const canvasId = generateId();
+    let html = '', css = '', js = '';
+    if (language==='html'||code.includes('<!DOCTYPE')||code.includes('<html')) html = code;
+    else if (language==='css') css = code;
+    else if (language==='javascript'||language==='js') js = code;
+    
+    let full;
+    if (html||css||js) full = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>${css}</style></head><body>${html}<script>${js}</script></body></html>`;
+    else full = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:monospace;padding:20px;background:#1e1e1e;color:#d4d4d4}pre{background:#2d2d2d;padding:15px;border-radius:8px}.lang{background:#007acc;color:#fff;padding:2px 8px;border-radius:4px;font-size:12px}</style></head><body><span class="lang">${language}</span><pre><code>${escapeHTML(code)}</code></pre></body></html>`;
+    
+    await env.KV.put(`canvas:${canvasId}`, full, { expirationTtl: 86400*7 });
+    return { canvasUrl: `${CONFIG.WORKER_URL}/canvas/${canvasId}`, canvasId: canvasId };
+}
+
 // ==========================================
 // ========== MAIN WORKER - ALL ENDPOINTS ==========
 // ==========================================
@@ -1573,96 +1355,73 @@ export default {
         if (url.pathname.startsWith('/image/')) { const iid = url.pathname.split('/')[2]; const blob = await getImageFromKV(env, iid); if (blob) return new Response(blob, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' } }); return new Response('Not found', { status: 404 }); }
         if (url.pathname.startsWith('/canvas/')) { const cid = url.pathname.split('/')[2]; const html = await env.KV.get(`canvas:${cid}`); if (html) return new Response(html, { headers: { 'Content-Type': 'text/html' } }); return new Response('Not found', { status: 404 }); }
         if (url.pathname === '/qr' && request.method === 'POST') { const body = await request.json(); if (!body.text) return new Response(JSON.stringify({ error: 'Text required' }), { status: 400, headers }); const qr = await generateQRCode(body.text, body.size || 300); if (qr.success) return new Response(qr.blob, { headers: { 'Content-Type': 'image/png' } }); return new Response(JSON.stringify({ error: 'QR failed' }), { status: 500, headers }); }
-        if (url.pathname === '/voice-chat' && request.method === 'POST') return await handleVoiceChat(request, env, userId, sessionId);
         if (url.pathname === '/premium/request' && request.method === 'POST') { const { transactionId, plan, upiId } = await request.json(); if (!transactionId || !plan) return new Response(JSON.stringify({ error: 'transactionId and plan required' }), { status: 400, headers }); const result = await requestPremium(env, userId, transactionId, plan, upiId || CONFIG.UPI_ID); return new Response(JSON.stringify(result), { headers }); }
         if (url.pathname === '/premium/verify' && request.method === 'GET') { const params = Object.fromEntries(url.searchParams); if (params.secret !== CONFIG.API_KEY) return new Response("Unauthorized", { status: 401 }); const result = await verifyPremium(env, params.userId, params.transactionId, params.plan); return new Response(JSON.stringify(result), { headers }); }
         if (url.pathname === '/premium/status') { const isP = await checkPremium(env, userId); const user = await getUser(env, userId); return new Response(JSON.stringify({ isPremium: isP, plan: user.plan || 'free', userId }), { headers }); }
         if (url.pathname === '/premium/plans') return new Response(JSON.stringify({ plans: CONFIG.PREMIUM_PLANS, paidFeatures: CONFIG.PAID_FEATURES, upiId: CONFIG.UPI_ID }), { headers });
-        if (url.pathname === '/agents' && request.method === 'GET') { const ua = await getUserAgents(env, userId); return new Response(JSON.stringify({ systemAgents: Object.entries(AI_AGENTS).map(([id, a]) => ({ id, ...a })), userAgents: ua }), { headers }); }
-        if (url.pathname === '/agents' && request.method === 'POST') { const { name, icon, prompt } = await request.json(); if (!name || !prompt) return new Response(JSON.stringify({ error: "Name and prompt required" }), { status: 400, headers }); const agent = await saveCustomAgent(env, userId, { name, icon: icon || '🤖', prompt }); return new Response(JSON.stringify({ success: true, agent }), { headers }); }
-        if (url.pathname === '/chat/agent' && request.method === 'POST') { const { agentId, message } = await request.json(); let ap = AI_AGENTS[agentId]?.prompt; if (!ap) { const r = await env.DB.prepare(`SELECT data FROM conversations WHERE id = ?`).bind(`agent:${agentId}`).first(); if (r) ap = JSON.parse(r.data).prompt; } if (!ap) return new Response(JSON.stringify({ error: "Agent not found" }), { status: 404, headers }); const resp = await getResponse(env, message, ap, await checkPremium(env, userId), userId, true); return new Response(JSON.stringify({ response: resp, agentId }), { headers }); }
-        if (url.pathname === '/workspace' && request.method === 'POST') { const { name } = await request.json(); if (!name) return new Response(JSON.stringify({ error: "Workspace name required" }), { status: 400, headers }); const ws = await createWorkspace(env, name, userId); return new Response(JSON.stringify({ success: true, workspace: ws }), { headers }); }
-        if (url.pathname.startsWith('/workspace/') && url.pathname.endsWith('/invite') && request.method === 'POST') { const wid = url.pathname.split('/')[2]; const { userId: iuid } = await request.json(); const r = await env.DB.prepare(`SELECT data FROM conversations WHERE id = ?`).bind(`workspace:${wid}`).first(); if (!r) return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers }); const ws = JSON.parse(r.data); if (ws.owner !== userId) return new Response(JSON.stringify({ error: "Only owner can invite" }), { status: 403, headers }); ws.members.push({ userId: iuid, role: 'member', joinedAt: Date.now() }); await env.DB.prepare(`UPDATE conversations SET data = ? WHERE id = ?`).bind(JSON.stringify(ws), `workspace:${wid}`).run(); return new Response(JSON.stringify({ success: true, workspace: ws }), { headers }); }
-        if (url.pathname === '/canvas' && request.method === 'POST') { const { html, css, js, title } = await request.json(); const cid = generateId(); const full = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title || 'NEXUS Canvas'}</title><style>${css || ''}</style></head><body>${html || ''}<script>${js || ''}</script></body></html>`; await env.KV.put(`canvas:${cid}`, full, { expirationTtl: 86400 }); return new Response(JSON.stringify({ success: true, canvasUrl: `${CONFIG.WORKER_URL}/canvas/${cid}` }), { headers }); }
+        if (url.pathname === '/health') { const isP = await checkPremium(env, userId); return new Response(JSON.stringify({ status: 'active', name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, isPremium: isP, version: 'GPT-5.5 + Smart AI Web Search', streaming: { modes: ['typing', 'burst'] }, webSearch: { type: 'AI-Based Semantic Understanding', providers: ['Gemini', 'Groq', 'Wikipedia', 'DuckDuckGo', 'RSS'] } }), { headers }); }
         if (url.pathname === '/manifest.json') return new Response(JSON.stringify({ name: "NEXUS AI", short_name: "NEXUS", description: "GPT-5.5 Level AI by Akhil Jaiswal", start_url: "/", display: "standalone", background_color: "#0f172a", theme_color: "#6366f1", icons: [{ src: "/branding/logo", sizes: "192x192", type: "image/svg+xml" }] }), { headers: { ...headers, 'Content-Type': 'application/json' } });
-        if (url.pathname === '/branding') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, tagline: "GPT-5.5 Level AI", logo: `${CONFIG.WORKER_URL}/branding/logo`, colors: { primary: "#6366f1", secondary: "#8b5cf6", accent: "#06b6d4", background: "#0f172a" }, version: "5.5.0", madeIn: "🇮🇳 India" }), { headers: { ...headers, 'Content-Type': 'application/json' } });
+        if (url.pathname === '/branding') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, tagline: "GPT-5.5 Level AI with Smart Semantic Search", logo: `${CONFIG.WORKER_URL}/branding/logo`, colors: { primary: "#6366f1", secondary: "#8b5cf6", accent: "#06b6d4", background: "#0f172a" }, version: "6.0.0", madeIn: "🇮🇳 India" }), { headers: { ...headers, 'Content-Type': 'application/json' } });
         if (url.pathname === '/branding/logo') { const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">GPT-5.5</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>`; return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age-86400' } }); }
-        if (url.pathname === '/health') { const isP = await checkPremium(env, userId); return new Response(JSON.stringify({ status: 'active', name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, isPremium: isP, version: 'GPT-5.5 + Streaming + Smart Web Search', streaming: { modes: ['typing', 'burst'] }, webSearch: { auto: true, providers: ['Gemini', 'Groq'] } }), { headers }); }
-        if (url.pathname === '/') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: 'GPT-5.5_STREAMING_SMART_SEARCH', creator: CONFIG.CREATOR, streaming: { modes: { typing: "Human-like", burst: "Instant" } }, webSearch: { auto: true, providers: ['Gemini', 'Groq'] }, premium: { monthly: '₹299', yearly: '₹1,499', pro: '₹2,999', upi: CONFIG.UPI_ID }, api_key: CONFIG.API_KEY }), { headers });
         if (url.pathname === '/clear') { await env.KV.delete(`session:${ip}|${userId}|${sessionId}`); return new Response(JSON.stringify({ success: true }), { headers }); }
+        if (url.pathname === '/') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: 'GPT-5.5_AI_SEMANTIC_SEARCH', creator: CONFIG.CREATOR, streaming: { modes: { typing: "Human-like", burst: "Instant" } }, webSearch: { type: "AI Semantic Understanding - No Keywords", auto: true }, premium: { monthly: '₹299', yearly: '₹1,499', pro: '₹2,999', upi: CONFIG.UPI_ID }, api_key: CONFIG.API_KEY }), { headers });
         
         // ========== MAIN CHAT ENDPOINT ==========
         if (url.pathname === '/chat' && request.method === 'POST') {
             const contentType = request.headers.get('Content-Type') || '';
             
-            if (contentType.includes('multipart/form-data')) {
-                const parsed = await parseMultipartForm(request);
-                if (parsed?.files.length > 0) {
-                    const file = parsed.files[0];
-                    const result = await processUploadedFile(env, file, parsed.message);
-                    if (result.error) return new Response(JSON.stringify({ error: result.error }), { status: 400, headers });
-                    if (result.content && !result.message) {
-                        const resp = await getResponse(env, `File content: ${result.content}`, '', false, userId);
-                        await addMessage(env, ip, userId, sessionId, `Uploaded: ${file.name}`, resp);
-                        await updateDailyStat(env, 'messages');
-                        return new Response(JSON.stringify({ response: resp, fileInfo: { name: result.fileName, type: result.fileType, size: result.fileSize } }), { headers });
-                    }
-                    await updateDailyStat(env, 'messages');
-                    return new Response(JSON.stringify({ response: result.message, fileInfo: { name: result.fileName, type: result.fileType, size: result.fileSize } }), { headers });
-                }
-            }
-            
             let body = {};
             try { body = await request.json(); } catch(e) {}
             
-            const { message, image, shoppingProduct, shoppingBudget, transformInstruction, videoUrl, reminderMessage, reminderMinutes } = body;
+            const { message } = body;
             const start = Date.now();
             const isPremium = await checkPremium(env, userId);
             const user = await getUser(env, userId);
-            const session = await getSession(env, ip, userId, sessionId);
             
-            if (reminderMessage && reminderMinutes) { const r = await setReminder(env, userId, reminderMessage, reminderMinutes); return new Response(JSON.stringify(r), { headers }); }
-            if (videoUrl) { const s = await getYoutubeSummary(videoUrl); await addMessage(env, ip, userId, sessionId, `YouTube: ${videoUrl}`, s); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: s }), { headers }); }
-            if (shoppingProduct) { const { analysis, searchLink } = await shoppingWithAffiliate(shoppingProduct, shoppingBudget); const full = `${analysis}\n\n---\n### 🔗 [View on Amazon](${searchLink})`; await addMessage(env, ip, userId, sessionId, `Shopping: ${shoppingProduct}`, full); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: full, shoppingLink: searchLink }), { headers }); }
-            if (image && transformInstruction) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "Premium feature!" }), { status: 403, headers }); const t = await transformImageWithSDXL(env, image, transformInstruction); if (t.success) { await addMessage(env, ip, userId, sessionId, message || transformInstruction, 'Transformed', true, t.url); await updateDailyStat(env, 'images'); return new Response(t.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': t.provider, ...headers } }); } }
-            
-            const sc = await buildContext(env, ip, userId, sessionId, message);
-            const hl = !!session.lastImageDesc;
-            const ad = await thinkBeforeAct(env, message, sc, hl, session.lastImageDesc, isPremium, userId);
-            
-            if (ad.action === "web_search") { const sr = await performWebSearch(message); const sresp = await callGemini(`Based on search, answer: ${message}\n\nResult: ${sr?.content || "None"}`, false); await addMessage(env, ip, userId, sessionId, message, sresp); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: sresp, isPremium, plan: user.plan || 'free' }), { headers }); }
-            if (ad.action === "improve_image" && session.lastImage) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "Premium feature!" }), { status: 403, headers }); const imp = await transformImageWithSDXL(env, session.lastImage, ad.prompt || "improve quality"); if (imp.success) { await addMessage(env, ip, userId, sessionId, message, 'Improved', true, imp.url); await updateDailyStat(env, 'images'); return new Response(imp.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': imp.provider, ...headers } }); } }
-            if (ad.action === "edit_image" && session.lastImage) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "Premium feature!" }), { status: 403, headers }); const ed = await editImageWithInpainting(env, session.lastImage, ad.prompt); if (ed.success) { await addMessage(env, ip, userId, sessionId, message, 'Edited', true, ed.url); await updateDailyStat(env, 'images'); return new Response(ed.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': ed.provider, ...headers } }); } }
-            if (ad.action === "new_image") { let mx = isPremium ? (user.plan === 'pro' ? 500 : 100) : 10; if (!isAdmin(userId)) { const ik = `usage:${userId}:img:${new Date().toDateString()}`; let ic = await env.KV.get(ik); ic = ic ? parseInt(ic) : 0; if (ic >= mx) return new Response(JSON.stringify({ error: `Limit: ${mx}/day` }), { status: 403, headers }); await env.KV.put(ik, String(ic + 1), { expirationTtl: 86400 }); } const img = await generateImage(env, ad.prompt || message); if (img.success) { await addMessage(env, ip, userId, sessionId, message, 'Generated', true, img.url); await updateDailyStat(env, 'images'); let tr = await callGemini(`Short friendly response in ${/[\u0900-\u097F]/.test(message) ? 'Hindi' : 'English'}.`, false); if (!tr) tr = '## 🎨 Created!'; return new Response(img.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': img.provider, 'X-Text-Response': encodeURIComponent(tr), ...headers } }); } }
-            if (image) { const result = await analyzeImage(image, message || 'Describe'); if (result) { await addMessage(env, ip, userId, sessionId, message || 'Analyze', result.analysis); return new Response(JSON.stringify({ analysis: result.analysis, provider: result.provider }), { headers }); } }
             if (!message) return new Response(JSON.stringify({ error: 'Message required' }), { status: 400, headers });
             
-        // ✅ STREAMING CHECK
-        const sm = request.headers.get('X-Stream-Mode') || 'normal';
-        if (sm === 'typing' || sm === 'burst') {
-            const context = await buildContext(env, ip, userId, sessionId, message);
+            // ✅ STREAMING CHECK
+            const sm = request.headers.get('X-Stream-Mode') || 'normal';
+            if (sm === 'typing' || sm === 'burst') {
+                const context = await buildContext(env, ip, userId, sessionId, message);
+                let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
+                if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
+                const { stream, processPromise } = await handleStreamingChat(env, message, context, userId, sessionId, ip, sm);
+                ctx.waitUntil(processPromise);
+                return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Stream-Mode': sm } });
+            }
+
+            // ✅ NORMAL RESPONSE
             let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
             if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
-            const { stream, processPromise } = await handleStreamingChat(env, message, context, userId, sessionId, ip, sm);
-            ctx.waitUntil(processPromise);
-            return new Response(stream, { headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Stream-Mode': sm } });
+            
+            const vm = await searchVectorDB(env, userId, message, 3); 
+            let vc = ""; 
+            if (vm.length > 0) { vc = "\n\n## 📚 Relevant Past Conversations\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
+            
+            const sc2 = await buildContext(env, ip, userId, sessionId, message);
+            const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
+            await addMessage(env, ip, userId, sessionId, message, response);
+            await saveToVectorDB(env, userId, message, { response: response.substring(0, 500), type: 'chat', importance: calculateImportance(message) });
+            await updateDailyStat(env, 'messages');
+            
+            const cm = response.match(/```(\w+)?\n([\s\S]*?)```/); 
+            let cd = null;
+            if (cm && ['html', 'css', 'javascript', 'js'].includes(cm[1] || 'text')) { 
+                try { cd = await generateCanvasArtifact(env, cm[2], cm[1] || 'text'); } catch(e) {} 
+            }
+            
+            return new Response(JSON.stringify({ 
+                response, 
+                isPremium, 
+                plan: user.plan || 'free', 
+                latency: Date.now() - start, 
+                streamingAvailable: true,
+                ...(cd ? { canvas: cd } : {}) 
+            }), { headers });
         }
 
-        // ✅ NORMAL RESPONSE
-        let mxm = isPremium ? (user.plan === 'pro' ? 10000 : 500) : 50;
-        if (!isAdmin(userId)) { const ck = `usage:${userId}:chat:${new Date().toDateString()}`; let cc = await env.KV.get(ck); cc = cc ? parseInt(cc) : 0; if (cc >= mxm) return new Response(JSON.stringify({ error: `Limit: ${mxm}/day` }), { status: 403, headers }); await env.KV.put(ck, String(cc + 1), { expirationTtl: 86400 }); }
-        const vm = await searchVectorDB(env, userId, message, 3); let vc = ""; if (vm.length > 0) { vc = "\n\n## 📚 Relevant Past\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
-        const sc2 = await buildContext(env, ip, userId, sessionId, message);
-        const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
-        await addMessage(env, ip, userId, sessionId, message, response);
-        await saveToVectorDB(env, userId, message, { response: response.substring(0, 500), type: 'chat', importance: calculateImportance(message) });
-        await updateDailyStat(env, 'messages');
-        const cm = response.match(/```(\w+)?\n([\s\S]*?)```/); let cd = null;
-        if (cm && ['html', 'css', 'javascript', 'js'].includes(cm[1] || 'text')) { try { cd = await generateCanvasArtifact(env, cm[2], cm[1] || 'text'); } catch(e) {} }
-        return new Response(JSON.stringify({ response, isPremium, plan: user.plan || 'free', latency: Date.now() - start, streamingAvailable: true, ...(cd ? { canvas: cd } : {}) }), { headers });
-    }
-
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
+        return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
     },
 
     scheduled: async (event, env, ctx) => {
