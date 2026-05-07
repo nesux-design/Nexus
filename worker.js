@@ -1751,3 +1751,36 @@ export default {
             if (vm.length > 0) { vc = "\n\n## 📚 Relevant Past\n"; for (const m of vm) { if (m.metadata?.text) vc += `- ${m.metadata.text.substring(0, 200)}...\n`; } }
             
             const sc2 = await buildContext(env, ip, userId, sessionId, message);
+const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
+            await addMessage(env, ip, userId, sessionId, message, response);
+            await saveToVectorDB(env, userId, message, { response: response.substring(0, 500), type: 'chat', importance: calculateImportance(message) });
+            await updateDailyStat(env, 'messages');
+            
+            const cm = response.match(/```(\w+)?\n([\s\S]*?)```/);
+            let cd = null;
+            if (cm && ['html', 'css', 'javascript', 'js'].includes(cm[1] || 'text')) {
+                try { cd = await generateCanvasArtifact(env, cm[2], cm[1] || 'text'); } catch(e) {}
+            }
+            
+            return new Response(JSON.stringify({
+                response,
+                isPremium,
+                plan: user.plan || 'free',
+                latency: Date.now() - start,
+                streamingAvailable: true,
+                ...(cd ? { canvas: cd } : {})
+            }), { headers });
+        }
+        
+        return new Response(JSON.stringify({ error: 'Not found', availableEndpoints: ['/chat', '/voice-chat', '/premium/*', '/canvas', '/qr', '/health', '/agents', '/workspace'] }), { status: 404, headers });
+    },
+
+    scheduled: async (event, env, ctx) => {
+        await sendDailyReportToSlack(env);
+        console.log("ðŸ“Š NEXUS Daily Report sent to Slack");
+    }
+};
+
+// ==========================================
+// ðŸŽ‰ NEXUS GPT-5.5 v7.0 â€” CHATGPT-LEVEL WORKER COMPLETE!
+// ==========================================
