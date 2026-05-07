@@ -15,8 +15,8 @@ const CONFIG = {
     UPI_ID: "jaiswalanushi8@oksbi",
     AMAZON_AFFILIATE_ID: "akhilgpt-21",
     ADMIN_IDS: ["admin", "akhil", "jaiswalanushi08"],
-    SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/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",
-    SLACK_SIGNING_SECRET: "059ce735021c1068a670e0e877424ddf",
+    SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/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",
+SLACK_SIGNING_SECRET: "05c7e735021c106a3670ce877424ddf",
     WORKER_URL: "https://nexus-a1.apikeyakhilka.workers.dev",
     
     // ChatGPT जैसा Natural Behavior — Thinking Mode OFF
