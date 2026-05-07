@@ -897,13 +897,11 @@ Return ONLY "YES" or "NO".`;
     } catch(e) {}
     return true;
 }
+// ==========================================
+// ========== 🌐 5 WEB SEARCH SOURCES (Groq Primary) ==========
+// ==========================================
 
-// ==========================================
-// ========== 🌐 5 WEB SEARCH SOURCES ==========
-// ==========================================
-// ==========================================
-// ========== 🥇 GROQ WEB SEARCH (Primary) ==========
-// ==========================================
+// 🥇 GROQ WEB SEARCH (Primary)
 async function webSearchGroq(query) {
     const key = getNextKey('groq');
     if (!key) return null;
@@ -913,11 +911,9 @@ async function webSearchGroq(query) {
             headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 model: "groq/compound",
-                messages: [{ role: "user", content: `Search the web for the LATEST information about: ${query}. Today's date is ${new Date().toDateString()}. Provide the most recent, accurate, and detailed information with dates, statistics, and sources. Be comprehensive and factual. Format with clear headings and bullet points.` }],
-                temperature: 0.3,
-                max_tokens: 3000,
-                tools: [{ type: "web_search" }],
-                tool_choice: "auto"
+                messages: [{ role: "user", content: `Search the web for the LATEST information about: ${query}. Today's date is ${new Date().toDateString()}. Provide the most recent, accurate, and detailed information with dates, statistics, and sources.` }],
+                temperature: 0.3, max_tokens: 3000,
+                tools: [{ type: "web_search" }], tool_choice: "auto"
             })
         });
         if (res.ok) {
@@ -929,25 +925,19 @@ async function webSearchGroq(query) {
     return null;
 }
 
-// ==========================================
-// ========== 🥈 GOOGLE NEWS RSS (Secondary) ==========
-// ==========================================
+// 🥈 GOOGLE NEWS RSS (Secondary)
 async function webSearchRSS(query) {
     try {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`;
         const res = await fetch(rssUrl);
         const text = await res.text();
         const items = text.match(/<title>(.*?)<\/title>/g);
-        
         if (items?.length > 1) {
             let content = "📰 Latest News Headlines:\n\n";
             let count = 0;
             for (let i = 1; i < Math.min(items.length, 10); i++) {
                 const headline = items[i].replace(/<title>|<\/title>/g, '').trim();
-                if (headline && !headline.includes('Google News') && headline.length > 5) {
-                    content += `• ${headline}\n`;
-                    count++;
-                }
+                if (headline && !headline.includes('Google News') && headline.length > 5) { content += `• ${headline}\n`; count++; }
             }
             if (count > 0) return { source: 'Google News (RSS)', content };
         }
@@ -955,15 +945,12 @@ async function webSearchRSS(query) {
     return null;
 }
 
-// ==========================================
-// ========== 🥉 WIKIPEDIA (Third) ==========
-// ==========================================
+// 🥉 WIKIPEDIA (Third)
 async function webSearchWikipedia(query) {
     try {
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
         const searchRes = await fetch(searchUrl);
         const searchData = await searchRes.json();
-        
         if (searchData.query?.search?.[0]) {
             const title = searchData.query.search[0].title;
             const contentUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=true&explaintext=true&titles=${encodeURIComponent(title)}&format=json&origin=*`;
@@ -977,9 +964,7 @@ async function webSearchWikipedia(query) {
     return null;
 }
 
-// ==========================================
-// ========== 🏅 DUCKDUCKGO (Fourth) ==========
-// ==========================================
+// 🏅 DUCKDUCKGO (Fourth)
 async function webSearchDuckDuckGo(query) {
     try {
         const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -991,25 +976,20 @@ async function webSearchDuckDuckGo(query) {
     return null;
 }
 
-// ==========================================
-// ========== 🏁 GEMINI GOOGLE SEARCH (Last) ==========
-// ==========================================
+// 🏁 GEMINI GOOGLE SEARCH (Last)
 async function webSearchGoogle(query) {
     const key = getNextKey('gemini');
     if (!key) return null;
     try {
-        const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: `Search the web for the most recent information about: ${query}. Today is ${new Date().toDateString()}. Provide specific details, dates, names, and sources.` }] }],
-                    generationConfig: { maxOutputTokens: 3000, temperature: 0.3 },
-                    tools: [{ googleSearch: {} }]
-                })
-            }
-        );
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: `Search the web for the most recent information about: ${query}. Today is ${new Date().toDateString()}. Provide specific details, dates, names, and sources.` }] }],
+                generationConfig: { maxOutputTokens: 3000, temperature: 0.3 },
+                tools: [{ googleSearch: {} }]
+            })
+        });
         if (res.ok) {
             const data = await res.json();
             const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -1017,8 +997,35 @@ async function webSearchGoogle(query) {
         }
     } catch(e) {}
     return null;
-                    }
+}
 
+// ==========================================
+// ========== 🎯 MASTER WEB SEARCH (New Priority) ==========
+// ==========================================
+async function performWebSearch(query) {
+    const today = new Date().toISOString().split('T')[0];
+    const datedQuery = `${query} ${today}`;
+    
+    const sources = [
+        { name: 'Groq', fn: () => webSearchGroq(datedQuery) },
+        { name: 'Google News', fn: () => webSearchRSS(datedQuery) },
+        { name: 'Wikipedia', fn: () => webSearchWikipedia(datedQuery) },
+        { name: 'DuckDuckGo', fn: () => webSearchDuckDuckGo(datedQuery) },
+        { name: 'Gemini', fn: () => webSearchGoogle(datedQuery) }
+    ];
+    
+    for (const source of sources) {
+        try {
+            const result = await source.fn();
+            if (result?.content && result.content.length > 50) {
+                console.log(`✅ Web Search: ${source.name} found results`);
+                return result;
+            }
+        } catch(e) {}
+    }
+    
+    return null;
+}
 // ==========================================
 // ========== 🛒 SHOPPING WITH AMAZON AFFILIATE ==========
 // ==========================================
