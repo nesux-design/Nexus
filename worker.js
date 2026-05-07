@@ -867,8 +867,8 @@ async function shouldSearchWeb(query, context = '') {
 - Weather, stock prices, cryptocurrency rates → YES
 - Election results, political developments → YES
 - "Latest", "today", "right now", "currently" → YES
-- Scientific explanations, math formulas, definitions → NO
-- Creative writing, poetry, storytelling → NO
+- Scientific explanations, math formulas, definitions → Yes
+- Creative writing, poetry, storytelling → Yes
 - Code help, debugging, technical explanations → NO
 - General knowledge that never changes → NO
 
@@ -901,32 +901,9 @@ Return ONLY "YES" or "NO".`;
 // ==========================================
 // ========== 🌐 5 WEB SEARCH SOURCES ==========
 // ==========================================
-
-async function webSearchGoogle(query) {
-    const key = getNextKey('gemini');
-    if (!key) return null;
-    try {
-        const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: `Search the web for the most recent and accurate information about: ${query}. Provide specific details, dates, names, numbers, and sources. Be comprehensive and factual. Format with clear headings and bullet points.` }] }],
-                    generationConfig: { maxOutputTokens: 3000, temperature: 0.3 },
-                    tools: [{ googleSearch: {} }]
-                })
-            }
-        );
-        if (res.ok) {
-            const data = await res.json();
-            const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (content && content.length > 20) return { source: 'Google (Gemini)', content };
-        }
-    } catch(e) {}
-    return null;
-}
-
+// ==========================================
+// ========== 🥇 GROQ WEB SEARCH (Primary) ==========
+// ==========================================
 async function webSearchGroq(query) {
     const key = getNextKey('groq');
     if (!key) return null;
@@ -935,53 +912,26 @@ async function webSearchGroq(query) {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: "openai/gpt-oss-120b",
-                messages: [{ role: "user", content: `Search the web thoroughly for: ${query}. Provide the most recent, accurate, and detailed information available. Include dates, statistics, and sources.` }],
+                model: "groq/compound",
+                messages: [{ role: "user", content: `Search the web for the LATEST information about: ${query}. Today's date is ${new Date().toDateString()}. Provide the most recent, accurate, and detailed information with dates, statistics, and sources. Be comprehensive and factual. Format with clear headings and bullet points.` }],
                 temperature: 0.3,
                 max_tokens: 3000,
                 tools: [{ type: "web_search" }],
-                tool_choice: "required"
+                tool_choice: "auto"
             })
         });
         if (res.ok) {
             const data = await res.json();
             const content = data.choices?.[0]?.message?.content;
-            if (content && content.length > 20) return { source: 'Groq', content };
+            if (content && content.length > 50) return { source: 'Groq (Primary)', content };
         }
     } catch(e) {}
     return null;
 }
 
-async function webSearchWikipedia(query) {
-    try {
-        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
-        const searchRes = await fetch(searchUrl);
-        const searchData = await searchRes.json();
-        
-        if (searchData.query?.search?.[0]) {
-            const title = searchData.query.search[0].title;
-            const contentUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=true&explaintext=true&titles=${encodeURIComponent(title)}&format=json&origin=*`;
-            const contentRes = await fetch(contentUrl);
-            const contentData = await contentRes.json();
-            const pages = contentData.query?.pages;
-            const extract = pages?.[Object.keys(pages)[0]]?.extract;
-            if (extract && extract.length > 20) return { source: 'Wikipedia', content: extract.substring(0, 3000) };
-        }
-    } catch(e) {}
-    return null;
-}
-
-async function webSearchDuckDuckGo(query) {
-    try {
-        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (data.AbstractText && data.AbstractText.length > 20) return { source: 'DuckDuckGo', content: data.AbstractText };
-        if (data.RelatedTopics?.[0]?.Text && data.RelatedTopics[0].Text.length > 20) return { source: 'DuckDuckGo', content: data.RelatedTopics[0].Text };
-    } catch(e) {}
-    return null;
-}
-
+// ==========================================
+// ========== 🥈 GOOGLE NEWS RSS (Secondary) ==========
+// ==========================================
 async function webSearchRSS(query) {
     try {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`;
@@ -1005,20 +955,69 @@ async function webSearchRSS(query) {
     return null;
 }
 
-async function performWebSearch(query) {
-    const sources = [webSearchGoogle, webSearchGroq, webSearchWikipedia, webSearchDuckDuckGo, webSearchRSS];
-    
-    // Parallel execution for speed
-    const results = await Promise.allSettled(sources.map(s => s(query)));
-    
-    for (const result of results) {
-        if (result.status === 'fulfilled' && result.value?.content) {
-            return result.value;
+// ==========================================
+// ========== 🥉 WIKIPEDIA (Third) ==========
+// ==========================================
+async function webSearchWikipedia(query) {
+    try {
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
+        
+        if (searchData.query?.search?.[0]) {
+            const title = searchData.query.search[0].title;
+            const contentUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=true&explaintext=true&titles=${encodeURIComponent(title)}&format=json&origin=*`;
+            const contentRes = await fetch(contentUrl);
+            const contentData = await contentRes.json();
+            const pages = contentData.query?.pages;
+            const extract = pages?.[Object.keys(pages)[0]]?.extract;
+            if (extract && extract.length > 50) return { source: 'Wikipedia', content: extract.substring(0, 3000) };
         }
-    }
-    
+    } catch(e) {}
     return null;
 }
+
+// ==========================================
+// ========== 🏅 DUCKDUCKGO (Fourth) ==========
+// ==========================================
+async function webSearchDuckDuckGo(query) {
+    try {
+        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.AbstractText && data.AbstractText.length > 50) return { source: 'DuckDuckGo', content: data.AbstractText };
+        if (data.RelatedTopics?.[0]?.Text && data.RelatedTopics[0].Text.length > 50) return { source: 'DuckDuckGo', content: data.RelatedTopics[0].Text };
+    } catch(e) {}
+    return null;
+}
+
+// ==========================================
+// ========== 🏁 GEMINI GOOGLE SEARCH (Last) ==========
+// ==========================================
+async function webSearchGoogle(query) {
+    const key = getNextKey('gemini');
+    if (!key) return null;
+    try {
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: `Search the web for the most recent information about: ${query}. Today is ${new Date().toDateString()}. Provide specific details, dates, names, and sources.` }] }],
+                    generationConfig: { maxOutputTokens: 3000, temperature: 0.3 },
+                    tools: [{ googleSearch: {} }]
+                })
+            }
+        );
+        if (res.ok) {
+            const data = await res.json();
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (content && content.length > 50) return { source: 'Gemini (Google)', content };
+        }
+    } catch(e) {}
+    return null;
+                    }
 
 // ==========================================
 // ========== 🛒 SHOPPING WITH AMAZON AFFILIATE ==========
