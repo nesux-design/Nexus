@@ -15,8 +15,8 @@ const CONFIG = {
     UPI_ID: "jaiswalanushi8@oksbi",
     AMAZON_AFFILIATE_ID: "akhilgpt-21",
     ADMIN_IDS: ["admin", "akhil", "jaiswalanushi08"],
-    SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/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",
-    SLACK_SIGNING_SECRET: "05c7e735021c106a3670ce877424ddf",
+    SLACK_WEBHOOK_URL: "",
+    SLACK_SIGNING_SECRET: "",
     WORKER_URL: "https://nexus-a1.apikeyakhilka.workers.dev",
   
     
@@ -1636,6 +1636,9 @@ const headers = {
 
 export default {
     async fetch(request, env, ctx) {
+          // ✅ ये 2 Lines जोड़ो — बस इतना ही!
+        if (env.SLACK_WEBHOOK_URL) CONFIG.SLACK_WEBHOOK_URL = env.SLACK_WEBHOOK_URL;
+        if (env.SLACK_SIGNING_SECRET) CONFIG.SLACK_SIGNING_SECRET = env.SLACK_SIGNING_SECRET;
         await initD1Tables(env);
         if (request.method === 'OPTIONS') return new Response(null, { headers });
         
