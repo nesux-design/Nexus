@@ -21,7 +21,7 @@ const CONFIG = {
   
     
     // ChatGPT जैसा Natural Behavior — Thinking Mode OFF
-    THINKING_MODE: false,
+    THINKING_MODE: true,
     
     CONTEXT_WINDOW: {
         max_tokens: 1000000,
@@ -126,6 +126,43 @@ const MASTER_PROMPT = `You are NEXUS, an advanced AI assistant created by Akhil 
 - You can be playful when appropriate, serious when needed
 - You remember context within a conversation and reference previous exchanges
 - You admit when you don't know something rather than pretending
+
+**AUTOMATICALLY CREATE AN IMAGE when the user's core intent is:**
+- To SEE something visual: "sunset", "dragon", "red car", "Taj Mahal"
+- To VISUALIZE an idea: "what would a futuristic Delhi look like"
+- To GET a picture: "dikhao", "photo", "show me"
+- To ILLUSTRATE a concept: "how does a black hole look"
+- Any request where a visual answer is more valuable than text
+
+**AUTOMATICALLY CREATE A TEXT TABLE when the user's core intent is:**
+- To COMPARE things: "iPhone vs Samsung", "compare these phones"
+- To ORGANIZE data: "points table", "schedule", "list of matches"
+- To see STATISTICS: "IPL standings", "team rankings", "sales data"
+- To get STRUCTURED info: "features comparison", "price list"
+- Any request where organized text data is more valuable than an image
+
+## 🎯 EXAMPLES OF TRUE UNDERSTANDING (NO KEYWORDS):
+- "IPL points table" → 📊 TEXT TABLE (wants data, not picture)
+- "IPL trophy photo" → 🎨 IMAGE (wants visual)
+- "Ladakh trip plan" → 📝 TEXT (wants information)
+- "Ladakh beautiful view" → 🎨 IMAGE (wants visual)
+- "Latest match score" → 📝 TEXT (wants data)
+- "Dhoni winning six photo" → 🎨 IMAGE (wants visual)
+- "Red car" → 🎨 IMAGE (visual concept)
+- "Car features comparison" → 📊 TEXT TABLE (comparison data)
+- "Mango" → 🎨 IMAGE (visual subject)
+- "Mango price today" → 📝 TEXT (current data)
+- "Today's weather" → 📝 TEXT (information)
+- "Beautiful clouds at sunset" → 🎨 IMAGE (visual scene)
+
+## ⚡ CRITICAL BEHAVIOR RULES:
+1. If the user's INTENT is to SEE something → IMAGE
+2. If the user's INTENT is to KNOW something → TEXT
+3. If the user's INTENT is to COMPARE/ORGANIZE → TABLE
+4. NEVER use keywords to decide—use MEANING
+5. NEVER describe an image when you can generate it
+6. NEVER create an image when data is what's needed
+7. When uncertain, prefer TEXT for informational queries, IMAGE for visual ones
 
 ## 🧠 YOUR CAPABILITIES
 - **Web Search**: You have live Google Search access. Use it proactively for any real-time information.
@@ -1689,7 +1726,7 @@ export default {
         if (url.pathname === '/') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: '7.0.0 ChatGPT-Level', creator: CONFIG.CREATOR, tagline: 'The AI that understands — no keywords needed', api_key: CONFIG.API_KEY, endpoints: { chat: '/chat', voice: '/voice-chat', premium: '/premium/*', canvas: '/canvas', qr: '/qr', health: '/health', agents: '/agents', workspace: '/workspace' }, premium: CONFIG.PREMIUM_PLANS, upi: CONFIG.UPI_ID }), { headers });
         if (url.pathname === '/clear') { await env.KV.delete(`session:${ip}|${userId}|${sessionId}`); return new Response(JSON.stringify({ success: true, message: 'Session cleared' }), { headers }); }
         
-        // ==========================================
+                // ==========================================
         // ========== 🚀 MAIN CHAT ENDPOINT ==========
         // ==========================================
         if (url.pathname === '/chat' && request.method === 'POST') {
@@ -1726,7 +1763,9 @@ export default {
             if (reminderMessage && reminderMinutes) { const r = await setReminder(env, userId, reminderMessage, reminderMinutes); return new Response(JSON.stringify(r), { headers }); }
             if (videoUrl) { const s = await getYoutubeSummary(videoUrl); await addMessage(env, ip, userId, sessionId, `YouTube: ${videoUrl}`, s); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: s }), { headers }); }
             if (shoppingProduct) { const { analysis, searchLink } = await shoppingWithAffiliate(shoppingProduct, shoppingBudget); const full = `${analysis}\n\n---\n### 🔗 [View on Amazon](${searchLink})`; await addMessage(env, ip, userId, sessionId, `Shopping: ${shoppingProduct}`, full); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: full, shoppingLink: searchLink }), { headers }); }
-            if (image && transformInstruction) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "✨ Premium feature! Upgrade to edit images." }), { status: 403, headers }); const t = await transformImageWithSDXL(env, image, transformInstruction); if (t.success) { await addMessage(env, ip, userId, sessionId, message || transformInstruction, 'Image transformed', true, t.url); await updateDailyStat(env, 'images'); return new Response(t.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': t.provider, ...headers } }); } }
+            
+            // ✅ IMAGE TRANSFORM — Premium Check हटाया
+            if (image && transformInstruction) { const t = await transformImageWithSDXL(env, image, transformInstruction); if (t.success) { await addMessage(env, ip, userId, sessionId, message || transformInstruction, 'Image transformed', true, t.url); await updateDailyStat(env, 'images'); return new Response(t.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': t.provider, ...headers } }); } }
             
             // Smart Context & Thinking
             const sc = await buildContext(env, ip, userId, sessionId, message);
@@ -1735,8 +1774,13 @@ export default {
             
             // Action Handlers
             if (ad.action === "web_search") { const sr = await performWebSearch(message); const sresp = await callGemini(`Based on web search, answer: ${message}\n\nSearch Results: ${sr?.content || "No results found"}`, false); await addMessage(env, ip, userId, sessionId, message, sresp); await updateDailyStat(env, 'messages'); return new Response(JSON.stringify({ response: sresp, isPremium, plan: user.plan || 'free' }), { headers }); }
-            if (ad.action === "improve_image" && session.lastImage) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "✨ Premium feature! Upgrade to edit images." }), { status: 403, headers }); const imp = await transformImageWithSDXL(env, session.lastImage, ad.prompt || "improve quality, enhance details"); if (imp.success) { await addMessage(env, ip, userId, sessionId, message, 'Image improved', true, imp.url); await updateDailyStat(env, 'images'); return new Response(imp.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': imp.provider, ...headers } }); } }
-            if (ad.action === "edit_image" && session.lastImage) { if (!isPremium && !isAdmin(userId)) return new Response(JSON.stringify({ error: "✨ Premium feature! Upgrade to edit images." }), { status: 403, headers }); const ed = await editImageWithInpainting(env, session.lastImage, ad.prompt); if (ed.success) { await addMessage(env, ip, userId, sessionId, message, 'Image edited', true, ed.url); await updateDailyStat(env, 'images'); return new Response(ed.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': ed.provider, ...headers } }); } }
+            
+            // ✅ IMPROVE IMAGE — Premium Check हटाया
+            if (ad.action === "improve_image" && session.lastImage) { const imp = await transformImageWithSDXL(env, session.lastImage, ad.prompt || "improve quality, enhance details"); if (imp.success) { await addMessage(env, ip, userId, sessionId, message, 'Image improved', true, imp.url); await updateDailyStat(env, 'images'); return new Response(imp.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': imp.provider, ...headers } }); } }
+            
+            // ✅ EDIT IMAGE — Premium Check हटाया
+            if (ad.action === "edit_image" && session.lastImage) { const ed = await editImageWithInpainting(env, session.lastImage, ad.prompt); if (ed.success) { await addMessage(env, ip, userId, sessionId, message, 'Image edited', true, ed.url); await updateDailyStat(env, 'images'); return new Response(ed.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': ed.provider, ...headers } }); } }
+            
             if (ad.action === "new_image") { let mx = isPremium ? (user.plan === 'pro' ? 500 : 100) : 10; if (!isAdmin(userId)) { const ik = `usage:${userId}:img:${new Date().toDateString()}`; let ic = await env.KV.get(ik); ic = ic ? parseInt(ic) : 0; if (ic >= mx) return new Response(JSON.stringify({ error: `🎨 Daily image limit reached: ${mx}/day. Upgrade for unlimited!` }), { status: 403, headers }); await env.KV.put(ik, String(ic + 1), { expirationTtl: 86400 }); } const img = await generateImage(env, ad.prompt || message); if (img.success) { await addMessage(env, ip, userId, sessionId, message, 'Image generated', true, img.url); await updateDailyStat(env, 'images'); let tr = await callGemini(`User asked for: "${ad.prompt || message}". Give a short, friendly response in ${/[\u0900-\u097F]/.test(message) ? 'Hindi' : 'English'} acknowledging the image was created.`, false); if (!tr) tr = '## 🎨 Here is your image!'; return new Response(img.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': img.provider, 'X-Text-Response': encodeURIComponent(tr), ...headers } }); } }
             if (image) { const result = await analyzeImage(image, message || 'Describe this image'); if (result) { await addMessage(env, ip, userId, sessionId, message || 'Analyze image', result.analysis); return new Response(JSON.stringify({ analysis: result.analysis, provider: result.provider }), { headers }); } }
             if (!message) return new Response(JSON.stringify({ error: 'Message is required' }), { status: 400, headers });
@@ -1787,10 +1831,10 @@ const response = await getResponse(env, message, sc2 + vc, isPremium, userId);
 
     scheduled: async (event, env, ctx) => {
         await sendDailyReportToSlack(env);
-        console.log("ðŸ“Š NEXUS Daily Report sent to Slack");
+        console.log("📊 NEXUS Daily Report sent to Slack");
     }
 };
 
 // ==========================================
-// ðŸŽ‰ NEXUS GPT-5.5 v7.0 â€” CHATGPT-LEVEL WORKER COMPLETE!
+// 🎉 NEXUS GPT-5.5 v7.0 — CHATGPT-LEVEL WORKER COMPLETE!
 // ==========================================
