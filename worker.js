@@ -3597,6 +3597,10 @@ async function handleChatAction(env, request, auth, body, params, ctx) {
 // ==========================================
 // ========== ALL ACTION HANDLERS ==========
 // ==========================================
+async function handleConversationsDeleteAction(env, auth, params) {
+    const conversationId = params.conversationId;
+    if (!conversationId) return new Response(JSON.stringify({ error: 'Conversation ID required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    const memorySystem = new MemorySystem(env, auth.userId, auth.supabase);
     const deleted = await memorySystem.deleteChatFromSupabase(conversationId);
     return new Response(JSON.stringify({ success: deleted }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 }
