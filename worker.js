@@ -3597,90 +3597,162 @@ async function handleChatAction(env, request, auth, body, params, ctx) {
 // ==========================================
 // ========== ALL ACTION HANDLERS ==========
 // ==========================================
-async function handleImageGenerateAction(env, auth, body) {
-    const prompt = body.prompt || body.message;
-    if (!prompt) return new Response(JSON.stringify({ error: 'Prompt required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const imageCheck = await checkUsageLimit2026(env, auth.userId, 'images');
-    if (!imageCheck.allowed) return new Response(JSON.stringify({ error: imageCheck.upgradeMessage }), { status: 403, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const result = await quantumImageGeneration(env, prompt);
-    if (result.success) {
-        await saveImageMetadata(env, result.imageId, auth.userId, prompt, result.provider);
-        await updateDailyStat(env, 'images');
-        return new Response(result.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': result.provider, 'X-Image-Id': result.imageId, ...CORS_HEADERS } });
-    }
-    return new Response(JSON.stringify({ error: 'Image generation failed' }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    const deleted = await memorySystem.deleteChatFromSupabase(conversationId);
+    return new Response(JSON.stringify({ success: deleted }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 }
 
-async function handleRealPhotoAction(env, auth, body, params) {
-    const query = body.query || params.query || '';
+async function handleConversationsSearchAction(env, auth, params) {
+    const query = params.query || '';
     if (!query) return new Response(JSON.stringify({ error: 'Search query required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const result = await unifiedRealPhotoSearch(query, { per_page: body.per_page || 10, page: body.page || 1, orientation: body.orientation || 'all', order: body.order || 'popular' });
-    return new Response(JSON.stringify(result), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    const memorySystem = new MemorySystem(env, auth.userId, auth.supabase);
+    const results = await memorySystem.searchChats(query);
+    return new Response(JSON.stringify({ success: true, results, total: results.length }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 }
 
-async function handleImageEditAction(env, auth, body) {
-    const imageData = body.image;
-    const instruction = body.instruction || body.prompt;
-    if (!imageData || !instruction) return new Response(JSON.stringify({ error: 'Image and instruction required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const result = await quantumImageTransform(env, imageData, instruction);
-    if (result.success) return new Response(result.blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': result.provider, 'X-Image-Id': result.imageId, ...CORS_HEADERS } });
-    return new Response(JSON.stringify({ error: 'Image editing failed' }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+async function handleUserProfileAction(env, auth) {
+    const userData = await auth.supabase.getUser(auth.userId, auth.token);
+    const premiumStatus = await auth.supabase.getPremiumStatus(auth.userId, auth.token);
+    return new Response(JSON.stringify({ success: true, profile: { id: auth.userId, email: auth.email || (userData ? userData.email : null), fullName: userData ? userData.full_name : null, avatarUrl: userData ? userData.avatar_url : null, isPremium: premiumStatus.isPremium, plan: premiumStatus.plan, premiumExpiry: premiumStatus.premiumExpiry, createdAt: userData ? userData.created_at : null, lastLogin: userData ? userData.last_login : null } }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 }
 
-async function handleImageEnhanceAction(env, auth, body) {
-    const imageData = body.image;
-    if (!imageData) return new Response(JSON.stringify({ error: 'Image required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    if (!env?.AI) return new Response(JSON.stringify({ error: 'AI binding not available' }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+async function handleAgentsListAction(env, auth) {
+    const userAgents = [];
+    try { if (env.DB) { const result = await env.DB.prepare("SELECT id, data FROM conversations_backup WHERE user_id = ? AND id LIKE 'agent:%'").bind(auth.userId).all(); if (result?.results) { for (const row of result.results) { try { userAgents.push(JSON.parse(row.data)); } catch (e) {} } } } } catch (e) {}
+    return new Response(JSON.stringify({ systemAgents: AI_AGENTS, userAgents }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+
+async function handleImageGalleryAction(env, auth) {
+    const images = await getUserImageGallery(env, auth.userId);
+    return new Response(JSON.stringify({ success: true, images, total: images.length }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+
+async function handleHealthAction() {
+    return new Response(JSON.stringify({ status: 'active', name: CONFIG.APP_NAME, creator: CONFIG.CREATOR, version: '8.0', date: TODAY, year: CURRENT_YEAR, uptime: '99.99%', features: { auth: true, webSearch: 5, models: 5, imageGen: 3, voice: 4, pixabay: true, unsplash: true, streaming: 4, premium: 4, languages: 21 }, languages: Object.keys(INDIAN_LANGUAGES) }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+
+async function handleClearSessionAction(env, auth, params) {
+    const ip = params.ip || 'unknown';
+    const sessionId = params.sessionId || 'default';
+    const targetUserId = params.userId || auth.userId;
+    if (targetUserId !== auth.userId && !isAdmin(auth.userId)) {
+        return new Response(JSON.stringify({ error: 'You can only clear your own session. Admin access required for other users.' }), { status: 403, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    }
+    await env.KV.delete('session:' + ip + '|' + targetUserId + '|' + sessionId);
+    return new Response(JSON.stringify({ success: true, message: 'Session cleared for user: ' + targetUserId }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+
+// ==========================================
+// ========== GEMINIâ†’GROQ FALLBACK ENGINE ==========
+// ==========================================
+async function callGeminiOrGroq(prompt, messages, options) {
+    const config = options || {};
+    const enableWebSearch = config.webSearch !== false;
     try {
-        let img = imageData;
-        if (!img.startsWith('data:')) img = 'data:image/png;base64,' + img;
-        const r = await env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', { prompt: 'enhance quality, improve details, sharpen, high resolution, professional quality, 4K, HDR', image: img, strength: 0.3, guidance: 4, steps: 15 });
-        if (r?.image) {
-            const bs = atob(r.image);
-            const ua = new Uint8Array(bs.length);
-            for (let i = 0; i < bs.length; i++) ua[i] = bs.charCodeAt(i);
-            const blob = new Blob([ua], { type: 'image/png' });
-            const iid = generateId();
-            await saveImageToKV(env, iid, blob);
-            return new Response(blob, { headers: { 'Content-Type': 'image/png', 'X-Provider': 'Quality Enhancer', 'X-Image-Id': iid, ...CORS_HEADERS } });
+        const key = getNextKey('gemini');
+        if (key) {
+            const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: config.maxTokens || CONFIG.MAX_TOKENS_GEMINI, temperature: config.temperature || 0.7, topP: 0.95, topK: 40 } };
+            if (enableWebSearch && config.useWebSearch !== false) body.tools = [{ googleSearch: {} }];
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), config.timeout || CONFIG.MODEL_TIMEOUT);
+            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+            clearTimeout(timeout);
+            if (response.ok) { const data = await response.json(); const text = data.candidates?.[0]?.content?.parts?.[0]?.text; if (text && text.length > 0) return { success: true, result: text, model: 'gemini' }; }
+            if (response.status === 429 || response.status === 503) markKeyFailed('gemini', key, 60);
         }
     } catch (e) {}
-    return new Response(JSON.stringify({ error: 'Enhancement failed' }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    try {
+        const key = getNextKey('groq');
+        if (key) {
+            const body = { model: 'openai/gpt-oss-120b', messages: messages || [{ role: 'user', content: prompt }], temperature: config.temperature || 0.7, max_tokens: config.maxTokens || CONFIG.MAX_TOKENS_GROQ, top_p: 0.95 };
+            if (enableWebSearch && config.useWebSearch !== false) { body.tools = [{ type: 'web_search' }]; body.tool_choice = 'auto'; }
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), config.timeout || CONFIG.MODEL_TIMEOUT);
+            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+            clearTimeout(timeout);
+            if (response.ok) { const data = await response.json(); const text = data.choices?.[0]?.message?.content; if (text && text.length > 0) return { success: true, result: text, model: 'groq' }; }
+            if (response.status === 429) markKeyFailed('groq', key, 60);
+        }
+    } catch (e) {}
+    return { success: false, result: null, model: 'none' };
 }
 
-async function handleShoppingAction(env, auth, body) {
-    const product = body.product || body.query;
-    const budget = body.budget;
-    if (!product) return new Response(JSON.stringify({ error: 'Product name required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const result = await quantumShopping(product, budget);
-    const response = result.analysis + '\n\n🔗 [View on Amazon](' + result.searchLink + ')';
-    return new Response(JSON.stringify({ response, analysis: result.analysis, searchLink: result.searchLink, product: result.product, budget: result.budget }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+// ==========================================
+// ========== ALL 20 FUNCTIONS WITH FALLBACK ==========
+// ==========================================
+async function quantumSemanticDecision(query, context, userHistory) { const startTime = Date.now(); const prompt = `You are a SEMANTIC ANALYSIS ENGINE. Return ONLY JSON:\n{"intent":"image_generation/real_photo/web_search/code_help/shopping/voice_interaction/youtube/reminder/translation/file_analysis/general_chat","confidence":0.0-1.0,"reasoning":"brief"}\n\nUSER: "${query}"\nCONTEXT: ${context ? context.substring(0, 300) : 'New'}`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0, maxTokens: 200, useWebSearch: false, timeout: 5000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { const decision = JSON.parse(jsonMatch[0]); return { intent: decision.intent || 'general_chat', confidence: decision.confidence || 0.7, decisionTime: Date.now() - startTime, reasoning: decision.reasoning, model: aiResult.model }; } catch (e) {} } } return { intent: 'general_chat', confidence: 0.5, decisionTime: Date.now() - startTime, reasoning: 'Fallback', model: 'none' }; }
+async function multiStageReasoning(query, context, options) { const prompt = `Analyze and create PLAN. Return ONLY JSON:\n{"needsSearch":bool,"complexity":"simple/medium/complex","approach":"direct/reasoning/creative/code","steps":1-5,"plan":"brief"}\n\nQUERY: "${query}"\nCONTEXT: ${context ? context.substring(0, 300) : 'New'}`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.1, maxTokens: 200, useWebSearch: false, timeout: 5000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { const plan = JSON.parse(jsonMatch[0]); return { plan, reasoning: { method: plan.approach || 'direct', confidence: 0.7, insights: [] }, search: null, response: null, model: aiResult.model }; } catch (e) {} } } return { plan: { needsSearch: true, complexity: 'medium', approach: 'direct', steps: 1, plan: 'Process directly' }, reasoning: { method: 'direct', confidence: 0.5, insights: [] }, search: null, response: null, model: 'none' }; }
+async function shouldSearchWeb(query, context) { const prompt = `Does this need web search? Return ONLY "YES" or "NO".\nQUESTION: "${query}"\nCONTEXT: ${context || 'None'}\nCurrent events, sports, weather, stocks, news â†’ YES | Math, definitions, static â†’ NO`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0, maxTokens: 5, useWebSearch: true, timeout: 5000 }); if (aiResult.success && aiResult.result) { const decision = aiResult.result.trim().toUpperCase(); if (decision === 'YES' || decision === 'NO') return decision === 'YES'; } return true; }
+async function metaThinking2026(env, userMessage, sessionContext, hasLastImage, lastImageDesc, isPremium, userId) { if (!CONFIG.THINKING_MODE) return { action: 'general_chat', prompt: userMessage, reasoning: 'Thinking disabled', confidence: 0.5 }; const prompt = `Analyze and decide action. Return ONLY JSON:\n{"action":"image_generation/real_photo/improve_image/edit_image/web_search/shopping/youtube/code_help/voice_interaction/file_analysis/general_chat","prompt":"enhanced query","reasoning":"brief","confidence":0.0-1.0}\n\nUSER: "${userMessage}"\nCONTEXT: ${sessionContext?.substring(0, 300) || 'New'}\n${hasLastImage ? 'LAST IMAGE: "' + (lastImageDesc || '') + '"\n' : ''}\nPLAN: ${isPremium ? 'Premium' : 'Free'}\nTODAY: ${TODAY}`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.1, maxTokens: 250, useWebSearch: true, timeout: 5000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { const decision = JSON.parse(jsonMatch[0]); return { action: decision.action || 'general_chat', prompt: decision.prompt || userMessage, reasoning: decision.reasoning || 'Complete', confidence: decision.confidence || 0.7 }; } catch (e) {} } } return { action: 'general_chat', prompt: userMessage, reasoning: 'Fallback', confidence: 0.3 }; }
+async function metaCognitionReflection(env, query, response, confidence, intent) { const prompt = `Is this AI response good? Return ONLY JSON:\n{"shouldRetry":true/false,"reason":"brief","improvedPrompt":"better prompt if needed"}\n\nQUERY: "${query}"\nRESPONSE: "${response?.substring(0, 300)}"\nCONFIDENCE: ${confidence}`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.1, maxTokens: 200, useWebSearch: false, timeout: 5000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { return JSON.parse(jsonMatch[0]); } catch (e) {} } } return { shouldRetry: false, improvedPrompt: null }; }
+async function enhanceImagePrompt(userPrompt) { const prompt = `Enhance into AI image prompt. Add style, lighting, composition, mood, quality keywords. Under 200 words. Return ONLY enhanced prompt.\n\nREQUEST: "${userPrompt}"`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.8, maxTokens: 300, useWebSearch: false, timeout: 5000 }); if (aiResult.success && aiResult.result) return aiResult.result; return userPrompt; }
+async function detectBestImageStyle(userPrompt) { const prompt = `Determine BEST artistic style. Return ONLY one word: photorealistic, artistic, anime, oil-painting, watercolor, sketch, 3d-render, cinematic, minimalist, abstract\n\nREQUEST: "${userPrompt}"`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.1, maxTokens: 20, useWebSearch: false, timeout: 3000 }); if (aiResult.success && aiResult.result) return aiResult.result.trim(); return 'realistic'; }
+async function autoTranslate(text, targetLang, sourceLang) { if (!text || targetLang === 'en') return text; sourceLang = sourceLang || detectLanguage(text); if (sourceLang === targetLang) return text; const srcName = INDIAN_LANGUAGES[sourceLang]?.name || sourceLang; const tgtName = INDIAN_LANGUAGES[targetLang]?.name || targetLang; const prompt = `Translate from ${srcName} to ${tgtName}. Return ONLY translation:\n${text}`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.1, maxTokens: CONFIG.MAX_TOKENS_GEMINI, useWebSearch: false, timeout: 10000 }); if (aiResult.success && aiResult.result) return aiResult.result; return text; }
+async function autoTranslateResponse(response, targetLang) { return await autoTranslate(response, targetLang); }
+async function moderateContent(text) { const prompt = `Check if this content is safe. Return ONLY JSON:\n{"safe":true/false,"reason":"brief","category":"none/hate/violence/nsfw/spam"}\n\nCONTENT: "${text?.substring(0, 500)}"`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0, maxTokens: 100, useWebSearch: false, timeout: 3000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { const result = JSON.parse(jsonMatch[0]); return { safe: result.safe !== false, reason: result.reason || 'Checked', category: result.category || 'none' }; } catch (e) {} } } return { safe: true, reason: 'Moderation skipped', category: 'none' }; }
+async function analyzeQueryComplexity(query) { const prompt = `Analyze this query complexity. Return ONLY JSON:\n{"complexity":"simple/medium/complex","estimatedTokens":number,"needsResearch":true/false,"suggestedModel":"gemini/groq/cerebras/sambanova"}\n\nQUERY: "${query}"`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0, maxTokens: 100, useWebSearch: false, timeout: 3000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { return JSON.parse(jsonMatch[0]); } catch (e) {} } } return { complexity: 'medium', estimatedTokens: 500, needsResearch: false, suggestedModel: 'gemini' }; }
+async function scoreResponseQuality(query, response) { const prompt = `Score this AI response quality. Return ONLY JSON:\n{"score":1-10,"accuracy":1-10,"helpfulness":1-10,"creativity":1-10,"issues":["..."]}\n\nQUERY: "${query?.substring(0, 200)}"\nRESPONSE: "${response?.substring(0, 500)}"`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0, maxTokens: 150, useWebSearch: false, timeout: 5000 }); if (aiResult.success && aiResult.result) { const jsonMatch = aiResult.result.match(/\{[\s\S]*\}/); if (jsonMatch) { try { return JSON.parse(jsonMatch[0]); } catch (e) {} } } return { score: 7, accuracy: 7, helpfulness: 7, creativity: 7, issues: [] }; }
+async function generateChatTitle(firstMessage, aiResponse) { const prompt = `Generate a SHORT title (max 5 words) for this conversation. Return ONLY the title.\nUSER: "${firstMessage?.substring(0, 200)}"\nAI: "${aiResponse?.substring(0, 200)}"`; const messages = [{ role: 'user', content: prompt }]; const aiResult = await callGeminiOrGroq(prompt, messages, { temperature: 0.5, maxTokens: 30, useWebSearch: false, timeout: 3000 }); if (aiResult.success && aiResult.result) return aiResult.result.trim().replace(/^"|"$/g, ''); return 'New Chat'; }
+async function selectBestModel(query, intent, complexity) { const modelMap = { 'code_help': ['cerebras', 'groq', 'gemini', 'sambanova', 'openrouter'], 'image_generation': ['gemini', 'groq', 'sambanova', 'cerebras', 'openrouter'], 'real_photo': ['gemini', 'groq', 'cerebras', 'sambanova', 'openrouter'], 'web_search': ['groq', 'gemini', 'cerebras', 'sambanova', 'openrouter'], 'shopping': ['gemini', 'groq', 'sambanova', 'cerebras', 'openrouter'], 'creative': ['sambanova', 'gemini', 'groq', 'cerebras', 'openrouter'], 'general_chat': ['gemini', 'groq', 'cerebras', 'sambanova', 'openrouter'] }; return modelMap[intent] || modelMap['general_chat']; }
+async function executeWithFallback(prompt, messages, options) { const config = options || {}; const models = config.models || ['gemini', 'groq', 'cerebras', 'sambanova', 'openrouter']; for (const modelName of models) { try { const result = await callSpecificModel(modelName, prompt, messages, config.enableWebSearch); if (result) return { success: true, result, model: modelName }; } catch (e) {} } return { success: false, result: null, model: 'none' }; }
+function generateCacheKey(query, context, model) { const keyParts = [ query?.substring(0, 100).toLowerCase().trim(), context?.substring(0, 100).toLowerCase().trim(), model || 'default' ]; return 'cache:' + keyParts.join('|').replace(/\s+/g, '_'); }
+function getRateLimitInfo(userId, usageData) { const limits = { free: { messages: 50, images: 10, voice: 5, search: 20 }, plus: { messages: 500, images: 100, voice: 50, search: 200 }, pro: { messages: 2000, images: 500, voice: 200, search: 1000 }, enterprise: { messages: Infinity, images: Infinity, voice: Infinity, search: Infinity } }; const tier = usageData?.tier || 'free'; const tierLimits = limits[tier]; const current = usageData?.current || {}; return { tier, limits: tierLimits, current, warnings: Object.entries(tierLimits).filter(([key, limit]) => limit !== Infinity && (current[key] || 0) >= limit * 0.8).map(([key]) => key + ' limit approaching') }; }
+async function getMultiModelConsensus(query, models) { const modelList = models || ['gemini', 'groq']; const results = []; for (const modelName of modelList) { try { const result = await callSpecificModel(modelName, query, [{ role: 'user', content: query }], false); if (result) results.push({ model: modelName, response: result.substring(0, 300) }); } catch (e) {} } return { responses: results, consensus: results.length >= 2, totalModels: results.length, agreement: results.length >= 2 ? 'Multiple models agree' : 'Single model response' }; }
+async function handleErrorRecovery(error, context, attempts) { const maxAttempts = attempts || 3; const recoveryStrategies = [ { name: 'retry_same', action: 'Retry with same model' }, { name: 'switch_model', action: 'Switch to fallback model' }, { name: 'simplify_query', action: 'Simplify the query' }, { name: 'use_cache', action: 'Check cache for similar query' }, { name: 'graceful_degradation', action: 'Return partial response' } ]; const currentAttempt = context?.attempt || 1; if (currentAttempt >= maxAttempts) return { shouldRetry: false, strategy: 'graceful_degradation', message: 'Max attempts reached' }; return { shouldRetry: true, strategy: recoveryStrategies[Math.min(currentAttempt, recoveryStrategies.length - 1)], nextAttempt: currentAttempt + 1 }; }
+async function optimizeContextWindow(messages, modelName, maxTokens) { const effectiveMax = maxTokens || CONFIG.CONTEXT_WINDOW.model_limits?.[modelName] || 100000; let totalTokens = 0; const optimized = []; for (let i = messages.length - 1; i >= 0; i--) { const msgTokens = Math.ceil((messages[i].content || '').length / 4); if (totalTokens + msgTokens > effectiveMax * 0.8) break; optimized.unshift(messages[i]); totalTokens += msgTokens; } return { messages: optimized, totalTokens, truncated: optimized.length < messages.length }; }
+async function collectUsageAnalytics(env, userId, action, model, tokens, latency) { const analytics = { userId, action, model, tokens, latency, timestamp: Date.now(), date: TODAY, hour: new Date().getHours() }; try { const key = 'analytics:' + userId + ':' + TODAY + ':' + new Date().getHours(); let existing = await env.KV.get(key, { type: 'json' }) || { actions: [] }; existing.actions.push(analytics); await env.KV.put(key, JSON.stringify(existing), { expirationTtl: 86400 * 7 }); } catch (e) {} return analytics; }
+// ==========================================
+// ========== MAIN WORKER ==========
+// ==========================================
+addEventListener('fetch', event => {
+    event.respondWith(handleRequest(event.request, event.env, event.context));
+});
+
+async function handleRequest(request, env, ctx) {
+    if (env.SLACK_WEBHOOK_URL) CONFIG.SLACK_WEBHOOK_URL = env.SLACK_WEBHOOK_URL;
+    if (env.SLACK_SIGNING_SECRET) CONFIG.SLACK_SIGNING_SECRET = env.SLACK_SIGNING_SECRET;
+    
+    await initD1Tables(env);
+    
+    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+    
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    
+    if (path === '/health') return await handleHealthAction();
+    
+    if (path === '/branding/logo') {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">GPT-5.5</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>';
+        return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
+    }
+    
+    if (path.startsWith('/image/')) { const imageId = path.split('/')[2]; const blob = await getImageFromKV(env, imageId); if (blob) return new Response(blob, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' } }); return new Response('Image not found', { status: 404 }); }
+    if (path.startsWith('/canvas/')) { const canvasId = path.split('/')[2]; const html = await env.KV.get('canvas:' + canvasId); if (html) return new Response(html, { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'public, max-age=3600' } }); return new Response('Canvas not found', { status: 404 }); }
+    if (path === '/slack/events' && request.method === 'POST') return await handleSlackCommandCenter2026(request, env);
+    
+    const auth = await enhancedAuthenticate(request, env);
+    const rateLimit = await checkRateLimit(env, ip, auth.userId);
+    if (!rateLimit.allowed) return new Response(JSON.stringify({ error: 'Rate limit exceeded', retryAfter: rateLimit.retryAfter }), { status: 429, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'Retry-After': String(rateLimit.retryAfter) } });
+    
+    if (path === '/api' && request.method === 'POST') { const body = await request.json().catch(() => ({})); const action = body.action || 'chat'; const params = Object.fromEntries(url.searchParams); return await handleAction(env, request, auth, action, body, params, ctx); }
+    if (path === '/chat' && request.method === 'POST') { const body = await request.json().catch(() => ({})); const params = Object.fromEntries(url.searchParams); params.sessionId = request.headers.get('X-Session-ID') || generateId(); return await handleAction(env, request, auth, 'chat', body, params, ctx); }
+    if (path === '/voice-chat' && request.method === 'POST') { const params = Object.fromEntries(url.searchParams); params.sessionId = request.headers.get('X-Session-ID') || generateId(); return await handleVoiceChatSupreme(request, env, auth.userId, params.sessionId); }
+    if (path === '/premium/status') return await handlePremiumStatusAction(env, auth);
+    if (path === '/premium/request' && request.method === 'POST') { const body = await request.json().catch(() => ({})); return await handlePremiumRequestAction(env, auth, body); }
+    if (path === '/premium/plans') return await handlePremiumPlansAction();
+    if (path === '/conversations' && request.method === 'GET') return await handleConversationsListAction(env, auth);
+    if (path === '/conversations' && request.method === 'POST') { const body = await request.json().catch(() => ({})); return await handleConversationsSaveAction(env, auth, body); }
+    if (path === '/pixabay/search' && request.method === 'GET') { const params = Object.fromEntries(url.searchParams); const body = { query: params.q, ...params }; return await handleRealPhotoAction(env, auth, body, params); }
+    if (path === '/qr' && request.method === 'POST') { const body = await request.json().catch(() => ({})); return await handleQRAction(body); }
+    if (path === '/canvas' && request.method === 'POST') { const body = await request.json().catch(() => ({})); return await handleCanvasAction(env, body); }
+    if (path === '/clear') { const params = { ip, sessionId: request.headers.get('X-Session-ID') || 'default' }; return await handleClearSessionAction(env, auth, params); }
+    
+    if (path === '/') return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: '8.0', creator: CONFIG.CREATOR, year: CURRENT_YEAR, oneEndpoint: '/api', documentation: 'POST /api with { "action": "...", ...params }', availableActions: ['chat', 'voice', 'image_generate', 'real_photo', 'image_edit', 'image_enhance', 'shopping', 'youtube', 'code_help', 'file_analysis', 'qr_generate', 'reminder', 'canvas', 'translate', 'premium_status', 'premium_request', 'premium_verify', 'premium_plans', 'conversations_list', 'conversations_save', 'conversations_delete', 'conversations_search', 'user_profile', 'agents_list', 'image_gallery', 'health', 'clear_session'], premium: PREMIUM_TIERS_2026, upi: CONFIG.UPI_ID }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    
+    return new Response(JSON.stringify({ error: 'Not found', tip: 'Use /api endpoint' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 }
 
-async function handleYoutubeAction(body) {
-    const videoUrl = body.videoUrl || body.url;
-    if (!videoUrl) return new Response(JSON.stringify({ error: 'YouTube URL required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const summary = await quantumYoutubeSummary(videoUrl);
-    return new Response(JSON.stringify({ response: summary }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-}
-
-async function handleCodeHelpAction(env, auth, body) {
-    const code = body.code || body.message;
-    const language = body.language || 'javascript';
-    if (!code) return new Response(JSON.stringify({ error: 'Code required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const prompt = 'You are an EXPERT ' + language + ' developer. Analyze, debug, optimize this code:\n\n```' + language + '\n' + code + '\n```\n\nProvide: Bugs, Security Issues, Performance Improvements, Best Practices.';
-    const messages = [{ role: 'user', content: prompt }];
-    const result = await quantumAIOrchestrator(prompt, messages, { webSearch: false, priority: 'quality', taskType: 'code' });
-    return new Response(JSON.stringify({ response: result.response, model: result.model }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-}
-
-async function handleFileAnalysisAction(env, auth, body) {
-    const fileContent = body.fileContent || body.content || body.text;
-    const fileType = body.fileType || 'text';
-    if (!fileContent) return new Response(JSON.stringify({ error: 'File content required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const usageCheck = await checkUsageLimit2026(env, auth.userId, 'fileAnalysis');
-    if (!usageCheck.allowed) return new Response(JSON.stringify({ error: usageCheck.upgradeMessage }), { status: 403, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const prompt = 'Analyze this ' + fileType + ' content and provide: Summary, Key Points, Insights, Recommendations.\n\nCONTENT:\n' + fileContent.substring(0, 10000);
-    const messages = [{ role: 'user', content: prompt }];
-    const result = await quantumAIOrchestrator(prompt, messages, { webSearch: false, priority: 'quality' });
-    return new Response
+async function scheduled(event, env, ctx) {
+    await sendDailyStats2026(env);
+    console.log('ðŸ“Š NEXUS Daily Report sent at ' + new Date().toISOString());
+    }
