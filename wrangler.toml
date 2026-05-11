@@ -4,7 +4,7 @@ compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
 # ✅ ये Line Add करो
-module = "esm"
+#module = "esm"
 
 [[kv_namespaces]]
 binding = "KV"
