@@ -3728,10 +3728,18 @@ async function handleClearSessionAction(env, auth, params) {
 // ==========================================
 // ========== MAIN WORKER EXPORT ==========
 // ==========================================
-export default {
-    async fetch(request, env, ctx) {
-        if (env.SLACK_WEBHOOK_URL) CONFIG.SLACK_WEBHOOK_URL = env.SLACK_WEBHOOK_URL;
-        if (env.SLACK_SIGNING_SECRET) CONFIG.SLACK_SIGNING_SECRET = env.SLACK_SIGNING_SECRET;
+addEventListener('fetch', event => {
+    event.respondWith(handleRequest(event.request, event.env, event.context));
+});
+
+async function handleRequest(request, env, ctx) {
+    if (env.SLACK_WEBHOOK_URL) CONFIG.SLACK_WEBHOOK_URL = env.SLACK_WEBHOOK_URL;
+    if (env.SLACK_SIGNING_SECRET) CONFIG.SLACK_SIGNING_SECRET = env.SLACK_SIGNING_SECRET;
+    
+    await initD1Tables(env);
+    
+    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+    
         
         await initD1Tables(env);
         
@@ -3826,14 +3834,14 @@ export default {
             }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
         }
         
-        return new Response(JSON.stringify({ error: 'Not found', tip: 'Use /api endpoint with { "action": "chat", "message": "your message" }' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    },
-    
-    async scheduled(event, env, ctx) {
-        await sendDailyStats2026(env);
-        console.log('ðŸ“Š NEXUS Daily Report sent at ' + new Date().toISOString());
-    }
-};
+        return new Response(JSON.stringify({ error: 'Not found', tip: 'Use /api endpoint' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+
+// Scheduled function alag se
+async function scheduled(event, env, ctx) {
+    await sendDailyStats2026(env);
+    console.log('📊 NEXUS Daily Report sent at ' + new Date().toISOString());
+}
     // ╔══════════════════════════════════════════════════════════════════════════════╗
 // ║  NEXUS AI v8.0 - FINAL VERSION - PART 9 OF 10 (SARDARO KA SARDAR!)        ║
 // ║  ALL-ROUNDER ORCHESTRATION - Gemini→Groq Fallback For EVERY Function!     ║
