@@ -42,8 +42,8 @@ const CONFIG = {
             groq: 131072,          // Groq GPT-OSS 120B: 131K input, 65K output
             cerebras: 8192,        // Cerebras Llama 3.1 8B: 8K input, 8K output
             sambanova: 128000,     // SambaNova Gemma 3: 128K input, 128K output
-            glm: 64000,            // GLM-4V: 64K input, 32K output
-            openrouter: 250000      // DeepSeek V4 Flash: 16K input
+            glm: 128000,            // GLM-4V: 64K input, 32K output
+            openrouter: 262000      // DeepSeek V4 Flash: 16K input
         }
     },
     
@@ -1319,7 +1319,7 @@ async function webSearchNemotron(query) {
                 'X-Title': CONFIG.APP_NAME
             },
             body: JSON.stringify({
-                model: 'nvidia/nemotron-3-super-120b-a12b:free',
+                model: 'openai/gpt-3.5-turbo:online',
                 messages: [{
                     role: 'user',
                     content: 'Search and provide the LATEST information about: ' + query + 
