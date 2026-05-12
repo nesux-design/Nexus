@@ -43,7 +43,7 @@ const CONFIG = {
             cerebras: 8192,        // Cerebras Llama 3.1 8B: 8K input, 8K output
             sambanova: 128000,     // SambaNova Gemma 3: 128K input, 128K output
             glm: 64000,            // GLM-4V: 64K input, 32K output
-            openrouter: 16385      // DeepSeek V4 Flash: 16K input
+            openrouter: 250000      // DeepSeek V4 Flash: 16K input
         }
     },
     
@@ -73,7 +73,7 @@ const CONFIG = {
     MAX_TOKENS_CEREBRAS: 8192,
     MAX_TOKENS_SAMBANOVA: 128000,
     MAX_TOKENS_GLM: 32768,
-    MAX_TOKENS_OPENROUTER: 4096,
+    MAX_TOKENS_OPENROUTER: 250000,
     
     TTS_KEYS: {
         elevenlabs: [
@@ -140,7 +140,7 @@ const DIRECT_API_KEYS = {
         'c3efb64b-c784-4e99-a8d3-e81605efcf3f'
     ],
     glm: ['1f9e20537b7b4d8394dc67c244ac742b.MNmyCVC6yIaiJCTm'],
-    openrouter: ['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']
+    openrouter: ['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']
 };
 
 // ==========================================
