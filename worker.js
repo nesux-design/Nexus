@@ -2692,7 +2692,7 @@ const PREMIUM_TIERS_2026 = {
         price: 299,
         messages: 500, images: 100, vision: 50, voice: 50, search: 200, fileAnalysis: 30,
         contextWindows: {
-            gemini: 100000, groq: 65536, nemotron: 65536, cerebras: 32000, sambanova: 65536, glm: 32000
+            gemini: 100000, groq: 65536, nemotron: 105536, cerebras: 32000, sambanova: 65536, glm: 32000
         },
         availableModels: ['gemini', 'groq', 'nemotron', 'cerebras', 'sambanova', 'glm'],
         history: '30 days', support: 'priority'
@@ -2702,7 +2702,7 @@ const PREMIUM_TIERS_2026 = {
         price: 1499,
         messages: 2000, images: 500, vision: 200, voice: 200, search: 1000, fileAnalysis: 100,
         contextWindows: {
-            gemini: 500000, groq: 100000, nemotron: 100000, cerebras: 65536, sambanova: 100000, glm: 64000
+            gemini: 500000, groq: 100000, nemotron: 300000, cerebras: 65536, sambanova: 100000, glm: 64000
         },
         availableModels: ['gemini', 'groq', 'nemotron', 'cerebras', 'sambanova', 'glm'],
         history: '90 days', support: 'priority-24x7'
@@ -2712,7 +2712,7 @@ const PREMIUM_TIERS_2026 = {
         price: 2999,
         messages: Infinity, images: Infinity, vision: Infinity, voice: Infinity, search: Infinity, fileAnalysis: Infinity,
         contextWindows: {
-            gemini: 1000000, groq: 131072, nemotron: 262144, cerebras: 131072, sambanova: 128000, glm: 64000
+            gemini: 1000000, groq: 131072, nemotron: 1000000, cerebras: 8000, sambanova: 128000, glm: 128000
         },
         availableModels: ['gemini', 'groq', 'nemotron', 'cerebras', 'sambanova', 'glm'],
         history: 'unlimited', support: 'dedicated-24x7'
