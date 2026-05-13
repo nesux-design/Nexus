@@ -3294,14 +3294,6 @@ async function handlePremiumVerifyAction(env, auth, body) {
     const result = await verifyPremium2026(env, targetUserId, transactionId, plan);
     return new Response(JSON.stringify(result), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
                                                                                       }
-async function handlePremiumVerifyAction(env, auth, body) {
-    if (!isAdmin(auth.userId)) return new Response(JSON.stringify({ error: 'Admin access required' }), { status: 403, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const targetUserId = body.userId; const transactionId = body.transactionId; const plan = body.plan;
-    if (!targetUserId || !transactionId || !plan) return new Response(JSON.stringify({ error: 'userId, transactionId, plan required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    const result = await verifyPremium2026(env, targetUserId, transactionId, plan);
-    return new Response(JSON.stringify(result), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-}
-
 async function handlePremiumPlansAction() {
     return new Response(JSON.stringify({ plans: PREMIUM_TIERS_2026, paidFeatures: CONFIG.PAID_FEATURES, upiId: CONFIG.UPI_ID }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 }
