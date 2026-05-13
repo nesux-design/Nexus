@@ -119,10 +119,10 @@ const PIXABAY_API_KEY = '55789544-dcf85e102c0c6212ec589b662';
 const DIRECT_API_KEYS = {
     gemini: [
         'AIzaSyAKE9pGHdIHdvswQ5xU2bob62i8v9SAGcA',
-        'AIzaSyB-SCuJxEyPv_TDoIjl5g-PsI3LUMWPXrc',
-        'AIzaSyCjFEDCeaPRy-XpeVgNOTy1ZUbthiullmU',
-        'AIzaSyD7HGu6KL_ZvUsWPOMmxtcF5Pn4ROgzpkA',
-        'AIzaSyB7eA8PnY_rHMWq5ARboYXdPSip-WHS92g'
+        'AIzaSyDotLdBMxwAB49S87QKkNYeccBunksCsSI',
+        'AIzaSyCFFSsUEBhGiITY8o0mnOnpt3DFFuaabFA',
+        'AIzaSyCq2j4fTO2lT59ghh3CNdNMI3D3Mx0WBdM',
+        'AIzaSyDbaFseWVHPKlRSp6fNk-7nZJ6PB81NMgo'
     ],
     groq: [
         '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',
@@ -1280,7 +1280,36 @@ async function webSearchGroq(query) {
     return null;
 }
 
-// 🥈 GOOGLE NEWS RSS (Secondary)
+// 🥈 GEMINI GOOGLE SEARCH (Secondary)
+async function webSearchGoogle(query) {
+    const key = getNextKey('gemini');
+    if (!key) return null;
+    
+    try {
+        const response = await fetch(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
+            {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: 'Search the web for the most recent information about: ' + query + '. Today is ' + TODAY + '. Provide specific details, dates, names, and sources.' }] }],
+                    generationConfig: { maxOutputTokens: 10000, temperature: 0.3 },
+                    tools: [{ googleSearch: {} }]
+                })
+            }
+        );
+        
+        if (response.ok) {
+            const data = await response.json();
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (content && content.length > 50) return { source: 'Gemini (Google)', content };
+        }
+        
+        if (response.status === 429) markKeyFailed('gemini', key, 60);
+    } catch (e) {}
+    return null;
+}
+
+// 🥉 GOOGLE NEWS RSS (Third)
 async function webSearchRSS(query) {
     try {
         const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=en-IN&gl=IN&ceid=IN:en';
@@ -1304,44 +1333,19 @@ async function webSearchRSS(query) {
     return null;
 }
 
-// 🥉 NVIDIA NEMOTRON (Third - via OpenRouter)
-async function webSearchNemotron(query) {
-    const key = getNextKey('openrouter');
-    if (!key) return null;
-    
+// 🏅 DUCKDUCKGO (Fourth)
+async function webSearchDuckDuckGo(query) {
     try {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + key,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': CONFIG.WORKER_URL,
-                'X-Title': CONFIG.APP_NAME
-            },
-            body: JSON.stringify({
-                model: 'openai/gpt-3.5-turbo:online',
-                messages: [{
-                    role: 'user',
-                    content: 'Search and provide the LATEST information about: ' + query + 
-                             '. Today is ' + TODAY + '. Give specific details, dates, names, and sources.'
-                }],
-                temperature: 0.3,
-                max_tokens: 2000
-            })
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            const content = data.choices?.[0]?.message?.content;
-            if (content && content.length > 50) return { source: 'NVIDIA Nemotron (3rd)', content };
+        const response = await fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json');
+        const data = await response.json();
+        if (data?.AbstractText && data.AbstractText.length > 50) {
+            return { source: 'DuckDuckGo', content: data.AbstractText };
         }
-        
-        if (response.status === 429) markKeyFailed('openrouter', key, 60);
     } catch (e) {}
     return null;
 }
 
-// 🏅 WIKIPEDIA (Fourth - Reliable)
+// 🏅 WIKIPEDIA (Fifth - Reliable)
 async function webSearchWikipedia(query) {
     try {
         const searchUrl = 'https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(query) + '&format=json&origin=*';
@@ -1357,35 +1361,6 @@ async function webSearchWikipedia(query) {
             const extract = pages?.[Object.keys(pages)[0]]?.extract;
             if (extract && extract.length > 50) return { source: 'Wikipedia', content: extract.substring(0, 3000) };
         }
-    } catch (e) {}
-    return null;
-}
-
-// 🏁 GEMINI GOOGLE SEARCH (Fifth - Smartest)
-async function webSearchGoogle(query) {
-    const key = getNextKey('gemini');
-    if (!key) return null;
-    
-    try {
-        const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key,
-            {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: 'Search the web for the most recent information about: ' + query + '. Today is ' + TODAY + '. Provide specific details, dates, names, and sources.' }] }],
-                    generationConfig: { maxOutputTokens: 3000, temperature: 0.3 },
-                    tools: [{ googleSearch: {} }]
-                })
-            }
-        );
-        
-        if (response.ok) {
-            const data = await response.json();
-            const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (content && content.length > 50) return { source: 'Gemini (Google)', content };
-        }
-        
-        if (response.status === 429) markKeyFailed('gemini', key, 60);
     } catch (e) {}
     return null;
 }
@@ -1495,7 +1470,7 @@ async function callGeminiOrGroq(prompt, messages, options) {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), config.timeout || CONFIG.MODEL_TIMEOUT);
             const response = await fetch(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key,
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
                 { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal }
             );
             clearTimeout(timeout);
@@ -1553,9 +1528,9 @@ async function quantumAIOrchestrator(prompt, messages, options) {
     let modelChain = ['gemini', 'groq', 'nemotron', 'cerebras', 'sambanova'];
     
     if (taskType === 'code' || priorityMode === 'speed') {
-        modelChain = ['cerebras', 'groq', 'gemini', 'nemotron', 'sambanova'];
+        modelChain = ['groq', 'gemini', 'nemotron','cerebras', 'sambanova'];
     } else if (taskType === 'creative') {
-        modelChain = ['sambanova', 'gemini', 'groq', 'nemotron', 'cerebras'];
+        modelChain = ['gemini', 'groq', 'sambanova', 'nemotron', 'cerebras'];
     } else if (priorityMode === 'quality') {
         modelChain = ['gemini', 'groq', 'sambanova', 'nemotron', 'cerebras'];
     }
@@ -1617,7 +1592,7 @@ async function callGemini(prompt, enableWebSearch) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), CONFIG.MODEL_TIMEOUT);
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key,
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal }
         );
         clearTimeout(timeout);
