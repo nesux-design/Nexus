@@ -3352,37 +3352,6 @@ async function handleClearSessionAction(env, auth, params) {
     await env.KV.delete('session:' + ip + '|' + targetUserId + '|' + sessionId);
     return new Response(JSON.stringify({ success: true, message: 'Session cleared for user: ' + targetUserId }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
                                                                                                                                              }
-// ==========================================
-// ========== GEMINIâ†’GROQ FALLBACK ==========
-// ==========================================
-async function callGeminiOrGroq(prompt, messages, options) {
-    const config = options || {}; const enableWebSearch = config.webSearch !== false;
-    try {
-        const key = getNextKey('gemini');
-        if (key) {
-            const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: config.maxTokens || CONFIG.MAX_TOKENS_GEMINI, temperature: config.temperature || 0.7, topP: 0.95, topK: 40 } };
-            if (enableWebSearch && config.useWebSearch !== false) body.tools = [{ googleSearch: {} }];
-            const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), config.timeout || CONFIG.MODEL_TIMEOUT);
-            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-            clearTimeout(timeout);
-            if (response.ok) { const data = await response.json(); const text = data.candidates?.[0]?.content?.parts?.[0]?.text; if (text && text.length > 0) return { success: true, result: text, model: 'gemini' }; }
-            if (response.status === 429 || response.status === 503) markKeyFailed('gemini', key, 60);
-        }
-    } catch (e) {}
-    try {
-        const key = getNextKey('groq');
-        if (key) {
-            const body = { model: 'openai/gpt-oss-120b', messages: messages || [{ role: 'user', content: prompt }], temperature: config.temperature || 0.7, max_tokens: config.maxTokens || CONFIG.MAX_TOKENS_GROQ, top_p: 0.95 };
-            if (enableWebSearch && config.useWebSearch !== false) { body.tools = [{ type: 'web_search' }]; body.tool_choice = 'auto'; }
-            const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), config.timeout || CONFIG.MODEL_TIMEOUT);
-            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-            clearTimeout(timeout);
-            if (response.ok) { const data = await response.json(); const text = data.choices?.[0]?.message?.content; if (text && text.length > 0) return { success: true, result: text, model: 'groq' }; }
-            if (response.status === 429) markKeyFailed('groq', key, 60);
-        }
-    } catch (e) {}
-    return { success: false, result: null, model: 'none' };
-}
 
 // ==========================================
 // ========== MAIN WORKER ==========
