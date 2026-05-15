@@ -27,7 +27,7 @@ const CURRENT_YEAR = CURRENT_DATE.year;
 const CURRENT_MONTH = CURRENT_DATE.month;
 const CURRENT_DAY = CURRENT_DATE.day;
 const TODAY = CURRENT_DATE.full;
-
+console.log('📅 DATE CHECK:', CURRENT_YEAR, TODAY);
 // ==========================================
 // ========== CONFIGURATION ==========
 // ==========================================
