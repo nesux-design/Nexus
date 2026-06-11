@@ -2,6 +2,14 @@ name = "nexus-gpt-worker"
 main = "worker.js"
 compatibility_date = "2024-12-01"
 
+# ⭐ YAHAN SE ADD KARO (Timeout increase)
+[limits]
+cpu_ms = 30000  # 30 seconds (default 10 seconds, max 30 seconds)
+
+# ⭐ YAHAN BHI ADD KARO (For better performance)
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
 [[kv_namespaces]]
 binding = "KV"
 id = "7f3a894d6cb041b3a7c25546f8714342"
