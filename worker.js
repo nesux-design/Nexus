@@ -82,7 +82,7 @@ var CONFIG = {
   // ╚══════════════════════════════════════════════════════════╝
   MAX_TOKENS_GEMINI: 65536,
   MAX_TOKENS_GROQ: 65536,
-  MAX_TOKENS_MIMO: 400,
+  MAX_TOKENS_MIMO: 50000,
   MAX_TOKENS_CEREBRAS: 8193,
   MAX_TOKENS_SAMBANOVA: 2048,
   MAX_TOKENS_GLM: 32768,
@@ -160,15 +160,15 @@ var DIRECT_API_KEYS = {
 };
 var OAUTH_CLIENTS = {
   google: {
-    clientId: "518268998755-8ihl7139tv1mtrttivvq4nms8leqfsn1.apps.googleusercontent.com",
-    clientSecret: "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",
+    clientId: "",
+    clientSecret: "",
     redirectUri: `${CONFIG.WORKER_URL}/auth/callback`,
     // 📑 Scopes ko badla taaki user ke Gmail aur Drive data ko read karne ki authority mile
     scope: "openid email profile https://mail.google.com/ https://www.googleapis.com/auth/drive"
   },
   github: {
-    clientId: "Ov23ligTtstTNf8sH2Jk",
-    clientSecret: "c2518ad76d18031f1923031c6d080d52742dcf62",
+    clientId: "",
+    clientSecret: "",
     redirectUri: `${CONFIG.WORKER_URL}/auth/callback`,
     // 📑 Scope ko badla taaki repositories aur pull requests ko analyze kiya ja sake
     scope: "user:email repo delete_repo read:org"
@@ -297,24 +297,24 @@ var TELEGRAM_BRIDGE_URL = "https://nexus-bridge-hlp2.onrender.com";
 var FRONTEND_URL = "https://nexus-bridge-hlp2.onrender.com";
 var OAUTH_CONFIG = {
   figma: {
-    clientId: "c3Y02GIV1BxWNS2FQ3jQkD",
-    clientSecret: "MFvNaupVF5PIJAE4pwsV6wvjZ8AoIVm4pbXKZMi2",
+    clientId: "",
+    clientSecret: "",
     redirectUri: "https://nexus-a1.apikeyakhilka.workers.dev/oauth/figma/callback",
     authUrl: "https://www.figma.com/oauth",
     tokenUrl: "https://api.figma.com/v1/oauth/token",
     scopes: 'file_content:read file_metadata:read file_comments:read current_user:read file_comments:write'
   },
   discord: {
-    clientId: "1523613860366516325",
-    clientSecret: "lA6XVqJjOKgGxa1IDSnoWEs8TgsHstqD",
+    clientId: "",
+    clientSecret: "",
     redirectUri: "https://nexus-a1.apikeyakhilka.workers.dev/oauth/discord/callback",
     authUrl: "https://discord.com/api/oauth2/authorize",
     tokenUrl: "https://discord.com/api/oauth2/token",
     scopes: "identify email guilds guilds.members.read"
   },
   canva: {
-    clientId: "OC-AZ86FnksV-EQ",
-    clientSecret: "cnvcaO_7x7R99OBYFVVYz2V5PFxi4FhvwPllG2jFdY9Y1V9Qafecd57b",
+    clientId: "",
+    clientSecret: "",
     redirectUri: "https://nexus-a1.apikeyakhilka.workers.dev/oauth/canva/callback",
     authUrl: "https://www.canva.com/api/oauth/authorize",
     tokenUrl: "https://api.canva.com/rest/v1/oauth/token",
