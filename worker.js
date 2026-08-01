@@ -42,6 +42,7 @@ var CONFIG = {
   // ║  MODEL INPUT LIMITS (Context Window Size)              ║
   // ║  Based on actual 2026 data for all providers           ║
   // ╚══════════════════════════════════════════════════════════╝
+  
   CONTEXT_WINDOW: {
     max_tokens: 1e6,
     max_messages: 500,
