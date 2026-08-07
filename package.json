@@ -19,7 +19,11 @@
     "cloudflare-worker",
     "web-search"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "agents": "^0.20.1",
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "wrangler": "^3.0.0"
   }
