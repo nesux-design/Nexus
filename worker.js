@@ -22,7 +22,6 @@ function getCurrentDate() {
     unix: Math.floor(now.getTime() / 1e3)
   };
 }
-
 __name(getCurrentDate, "getCurrentDate");
 __name2(getCurrentDate, "getCurrentDate");
 __name22(getCurrentDate, "getCurrentDate");
