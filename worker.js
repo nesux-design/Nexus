@@ -1,6 +1,7 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
+
 // worker.js
 import { env } from "cloudflare:workers";
 import { TimeMcpServer } from "./mcp-time.js"; 
