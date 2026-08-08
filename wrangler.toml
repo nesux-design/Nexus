@@ -22,3 +22,11 @@ index_name = "captain-cool-index"
 
 [ai]
 binding = "AI"
+
+[[durable_objects.bindings]]
+name = "TIME_MCP"
+class_name = "TimeMcpServer"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["TimeMcpServer"]
