@@ -1,6 +1,7 @@
 name = "nexus-a1"
 main = "worker.js"
 compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 
 
 # ⭐ YAHAN BHI ADD KARO (For better performance)
@@ -30,4 +31,4 @@ class_name = "TimeMcpServer"
 [[migrations]]
 tag = "v1"
 new_classes = ["TimeMcpServer"]
-compatibility_flags = ["nodejs_compat"]
+
