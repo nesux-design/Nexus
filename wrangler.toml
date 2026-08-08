@@ -30,3 +30,4 @@ class_name = "TimeMcpServer"
 [[migrations]]
 tag = "v1"
 new_classes = ["TimeMcpServer"]
+compatibility_flags = ["nodejs_compat"]
