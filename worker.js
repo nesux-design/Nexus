@@ -7648,9 +7648,7 @@ var worker_default = {
     }
 
     if (pathname === "/mcp/time" || pathname.startsWith("/mcp/time/")) {
-      const id = env2.TIME_MCP.idFromName("global-time-mcp");
-      const stub = env2.TIME_MCP.get(id);
-      return await stub.fetch(request);
+  return await TimeMcpServer.serve("/mcp/time").fetch(request, env2, ctx);
     }
     
     if (path === "/api/test/plugins") {
