@@ -7645,6 +7645,13 @@ var worker_default = {
         return new Response(html, { headers: { "Content-Type": "text/html", "Cache-Control": "public, max-age=3600" } });
       return new Response("Canvas not found", { status: 404 });
     }
+
+    if (pathname === "/mcp/time" || pathname.startsWith("/mcp/time/")) {
+      const id = env2.TIME_MCP.idFromName("global-time-mcp");
+      const stub = env2.TIME_MCP.get(id);
+      return await stub.fetch(request);
+    }
+    
     if (path === "/api/test/plugins") {
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
