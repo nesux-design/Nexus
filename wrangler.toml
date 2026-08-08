@@ -30,5 +30,5 @@ class_name = "TimeMcpServer"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["TimeMcpServer"]
+new_sqlite_classes = ["TimeMcpServer"]
 
