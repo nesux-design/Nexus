@@ -7756,9 +7756,9 @@ var worker_default = {
       return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
     }
     if (pathname === "/mcp/time" || pathname.startsWith("/mcp/time/")) {
-  const id = env2.TIME_MCP.idFromName("global-time-mcp");
-  const stub = env2.TIME_MCP.get(id);
-  return await stub.fetch(request);
+      const id = env2.MCP_OBJECT.idFromName("global-time-mcp");
+      const stub = env2.MCP_OBJECT.get(id);
+      return await stub.fetch(request);
     }
     if (path.startsWith("/image/")) {
       const imageId = path.split("/")[2];
