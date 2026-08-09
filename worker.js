@@ -3,6 +3,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 
 // worker.js
 import { env } from "cloudflare:workers";
+import { TimeMcpServer } from "./mcp-time.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
 var __defProp22 = Object.defineProperty;
@@ -7754,6 +7755,11 @@ var worker_default = {
       const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">GPT-5.5</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>';
       return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
     }
+    if (pathname === "/mcp/time" || pathname.startsWith("/mcp/time/")) {
+  const id = env2.TIME_MCP.idFromName("global-time-mcp");
+  const stub = env2.TIME_MCP.get(id);
+  return await stub.fetch(request);
+    }
     if (path.startsWith("/image/")) {
       const imageId = path.split("/")[2];
       const blob = await getImageFromKV(env2, imageId);
@@ -7953,6 +7959,7 @@ var worker_default = {
   }
 };
 export {
-  worker_default as default
+  worker_default as default, 
+  TimeMcpServer
 };
 //# sourceMappingURL=worker.js.map
