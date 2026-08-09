@@ -25,7 +25,7 @@ index_name = "captain-cool-index"
 binding = "AI"
 
 [[durable_objects.bindings]]
-name = "TIME_MCP"
+name = "MCP_OBJECT"
 class_name = "TimeMcpServer"
 
 [[migrations]]
