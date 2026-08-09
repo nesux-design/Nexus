@@ -7648,7 +7648,7 @@ var worker_default = {
     }
 
     if (pathname === "/mcp/time" || pathname.startsWith("/mcp/time/")) {
-  return await TimeMcpServer.serve("/mcp/time").fetch(request, env2, ctx);
+    return await TimeMcpServer.serve("/mcp/time", { binding: "TIME_MCP" }).fetch(request, env22, ctx);
     }
     
     if (path === "/api/test/plugins") {
