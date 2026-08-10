@@ -12,6 +12,10 @@ vars = { ENVIRONMENT = "production" }
 binding = "KV"
 id = "7f3a894d6cb041b3a7c25546f8714342"
 
+[[kv_namespaces]]
+binding = "NEXUS_KV"
+id = "67a179e277924b17bf63b28b61ffd546"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "nexus_users"
