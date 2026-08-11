@@ -2,7 +2,8 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-import { env } from "cloudflare:workers";
+import { env } from "cloudflare:workers"; 
+import { TimeMcpServer } from "./mcp-time.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
 var __defProp22 = Object.defineProperty;
@@ -7902,6 +7903,9 @@ var worker_default = {
       if (html)
         return new Response(html, { headers: { "Content-Type": "text/html", "Cache-Control": "public, max-age=3600" } });
       return new Response("Canvas not found", { status: 404 });
+    }
+    if (pathname === "/mcp/time" || pathname.startsWith("/mcp/time/")) {
+  return TimeMcpServer.serveSSE("/mcp/time").fetch(request, env, ctx);
     }
     if (path === "/api/test/plugins") {
       const targetUserId = url.searchParams.get("userId");
