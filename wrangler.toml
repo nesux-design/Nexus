@@ -25,6 +25,10 @@ binding = "DB"
 database_name = "nexus_users"
 database_id = "80563f0c-f9f7-4af4-aa12-941a093cb88e"
 
+[vars]
+NEXUS_INTERNAL_AUTH_SECRET = "N7vQ2xL9mK4pR8zT6wY3cH5jF1sD0aB8uE6nG9qW2rX7kP4tM5vZ8yC3fJ6hL1
+"
+
 [[vectorize]]
 binding = "VECTOR"
 index_name = "captain-cool-index"
