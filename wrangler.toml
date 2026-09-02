@@ -35,11 +35,6 @@ index_name = "captain-cool-index"
 [ai]
 binding = "AI"
 
-[[durable_objects.bindings]]
-name = "MCP_OBJECT"
-class_name = "TimeMcpServer"
-
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["TimeMcpServer"]
 
