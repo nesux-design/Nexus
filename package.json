@@ -2,7 +2,7 @@
   "name": "nexus-gpt-worker",
   "version": "6.0.0",
   "description": "NEXUS GPT-5.5 Level AI Assistant - Cloudflare Worker with Smart Web Search",
-  "main": "worker.js",
+  "main": "worker.ts",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
@@ -27,6 +27,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0"
+    "wrangler": "^3.0.0",
+    "typescript": "^5.7.0",
+    "@cloudflare/workers-types": "^4.20250101.0"
   }
 }
