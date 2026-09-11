@@ -1,0 +1,77 @@
+--- a/worker.ts
++++ b/worker.ts
+@@ -1171,11 +1171,11 @@
+   "Can show its step-by-step reasoning/thinking process when explicitly requested, not just the final answer"
+   // \u{1F447} Naya feature add karte waqt bas ek line yahan add karo \u2014 MASTER_PROMPT khud-ba-khud isse
+   // uठा lega, kahin aur dhundhne/edit karne ki zaroorat nahi.
+ ];
+ function getIntegrationsCapabilityText() {
+-  const special = ["figma", "telegram", "discord", "canva", "wolfram", "zapier", "google", "gmail", "github"];
++  const special = ["figma", "telegram", "discord", "canva", "wolfram", "zapier"]; // google/github → nexus-mcp-server
+   const all = [...GENERIC_OAUTH_PROVIDERS, ...special];
+   return all.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ");
+ }
+ __name(getIntegrationsCapabilityText, "getIntegrationsCapabilityText");
+ function getCapabilitiesSection() {
+@@ -4376,11 +4376,11 @@
+         break;
+       case "zapier":
+         result = await zapierFullControl(integration.access_token, params);
+         break;
+       default:
+-        if (GENERIC_OAUTH_PROVIDERS.includes(app) || ["google", "gmail", "github"].includes(app)) {
++        if (GENERIC_OAUTH_PROVIDERS.includes(app)) { // google/github → nexus-mcp-server real MCP
+           if (!params || !params.endpoint) {
+             return { error: `To use ${app}, provide 'endpoint' (full API URL) and optionally 'method' (GET/POST/etc), 'body', and 'headers' in params.` };
+           }
+           const apiResult = await genericAuthenticatedApiCall(
+             integration.access_token,
+@@ -7665,11 +7665,18 @@
+ }
+ __name(handleClearSessionAction, "handleClearSessionAction");
+ __name2(handleClearSessionAction, "handleClearSessionAction");
+ __name22(handleClearSessionAction, "handleClearSessionAction");
+ async function executeLivePlugin(env2, userId, pluginName, actionType = "read", payload = {}) {
++  // Google + GitHub moved to official remote MCP (nexus-mcp-server)
+   if (pluginName === "github") {
++    return { error: "moved_to_mcp", mcpUrl: "https://nexus-mcp-server.apikeyakhilka.workers.dev/mcp/github" };
++  }
++  if (pluginName === "google" || pluginName === "gmail" || pluginName === "google_gmail" || pluginName === "googleDrive") {
++    return { error: "moved_to_mcp", mcpUrl: "https://nexus-mcp-server.apikeyakhilka.workers.dev/mcp/gmail", also: "https://nexus-mcp-server.apikeyakhilka.workers.dev/mcp/googleDrive" };
++  }
++  if (pluginName === "github_LEGACY_DISABLED") {
+     const githubAuth = await env2.NEXUS_KV.get(`auth_plugin:github:${userId}`, { type: "json" });
+     if (!githubAuth)
+       return "\u26A0\uFE0F GitHub Plugin not connected by user.";
+     const headers = {
+       "Authorization": `Bearer ${githubAuth.tokens.access_token}`,
+@@ -8160,15 +8167,26 @@
+     if (path === "/voice-chat" && request.method === "POST") {
+       const params = Object.fromEntries(url.searchParams);
+       params.sessionId = request.headers.get("X-Session-ID") || generateId();
+       return await handleVoiceChatSupreme(request, env2, auth.userId, params.sessionId);
+     }
+-    if (pathname === "/oauth/google/login") {
+-      return await handleOAuthLogin(env2, "google");
++    if (pathname === "/oauth/google/login" || pathname === "/oauth/gmail/login") {
++      return Response.json({
++        error: "moved_to_mcp",
++        message: "Google/Gmail/Drive now use official remote MCP on nexus-mcp-server",
++        mcp: {
++          googleDrive: "https://nexus-mcp-server.apikeyakhilka.workers.dev/mcp/googleDrive",
++          gmail: "https://nexus-mcp-server.apikeyakhilka.workers.dev/mcp/gmail"
++        }
++      }, { status: 410, headers: { "content-type": "application/json" } });
+     }
+     if (pathname === "/oauth/github/login") {
+-      return await handleOAuthLogin(env2, "github");
++      return Response.json({
++        error: "moved_to_mcp",
++        message: "GitHub now uses official remote MCP on nexus-mcp-server",
++        mcp: { github: "https://nexus-mcp-server.apikeyakhilka.workers.dev/mcp/github" }
++      }, { status: 410, headers: { "content-type": "application/json" } });
+     }
+     if (pathname === "/auth/callback") {
+       return await handleAuthCallback(request, env2);
+     }
+     if (path === "/oauth/disconnect") {
