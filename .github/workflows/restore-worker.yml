@@ -1,0 +1,48 @@
+name: Restore worker.ts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore worker.ts from known-good commit
+        run: |
+          set -e
+          GOOD=03c752a08dff18c9c58a23bb5923a1471a30807d
+          git show "$GOOD:worker.ts" > worker.ts
+          wc -c worker.ts
+          head -c 80 worker.ts
+          echo
+          if [ ! -s worker.ts ]; then
+            echo "ERROR: restored file empty"
+            exit 1
+          fi
+          # must be the big worker, not the 33-byte placeholder
+          SIZE=$(wc -c < worker.ts)
+          if [ "$SIZE" -lt 100000 ]; then
+            echo "ERROR: unexpected small size $SIZE"
+            exit 1
+          fi
+
+      - name: Commit and push
+        run: |
+          set -e
+          git config user.name "nexus-restore"
+          git config user.email "nexus-restore@users.noreply.github.com"
+          git add worker.ts
+          if git diff --cached --quiet; then
+            echo "No change needed"
+            exit 0
+          fi
+          git commit -m "fix: restore worker.ts from 03c752a (known good)"
+          git push origin HEAD:main
