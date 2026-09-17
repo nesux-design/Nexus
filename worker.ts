@@ -4,7 +4,6 @@
  * annotations (Env interface + function/parameter types) were added.
  */
 
-
 // ── Cloudflare bindings + secrets used by this Worker ─────────────────────
 // Built by scanning every `env.X` / `env2.X` reference in the original file.
 interface Env {
