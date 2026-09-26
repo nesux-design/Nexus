@@ -106,6 +106,7 @@ var __name = (target: any, value: string) => __defProp(target, "name", { value, 
 
 // worker.js
 import { env } from "cloudflare:workers";
+import { getMcpStyleTools, formatMcpStyleToolsForThinking, matchConnectorToolFromMessage, reauthPayload, runConnectorApiAction } from "./connector-mcp-phases.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
 var __defProp22 = Object.defineProperty;
@@ -4123,7 +4124,7 @@ __name(telegramFullControl, "telegramFullControl");
 __name2(telegramFullControl, "telegramFullControl");
 async function discordFullControl(token, action, params) {
   const headers = {
-    "Authorization": `Bot ${token}`,
+    "Authorization": `Bearer ${token}`,
     "Content-Type": "application/json"
   };
   switch (action) {
@@ -4145,7 +4146,7 @@ async function discordFullControl(token, action, params) {
         formData.append("content", params.content);
       return await fetch(`https://discord.com/api/v10/channels/${params.channelId}/messages`, {
         method: "POST",
-        headers: { "Authorization": `Bot ${token}` },
+        headers: { "Authorization": `Bearer ${token}` },
         body: formData
       }).then((r) => r.json());
     case "create_channel":
@@ -4337,6 +4338,19 @@ async function genericAuthenticatedApiCall(token, method, endpoint, body, extraH
 }
 __name(genericAuthenticatedApiCall, "genericAuthenticatedApiCall");
 __name2(genericAuthenticatedApiCall, "genericAuthenticatedApiCall");
+async function executePluginNew(env2, auth, body) {
+  const app = String(body?.app || "").toLowerCase();
+  const action = body?.action;
+  const params = body?.params || {};
+  if (!app || !action) return { error: "app and action are required" };
+  const integration = await env2.DB.prepare("SELECT access_token FROM user_integrations WHERE user_id = ? AND app_name = ? AND status = 'CONNECTED'").bind(auth.userId, app).first();
+  if (!integration?.access_token) return reauthPayload(app, auth.userId, CONFIG.WORKER_URL);
+  const result = await runConnectorApiAction(app, action, integration.access_token, params, { clientId: env2.TWITCH_CLIENT_ID });
+  if (result?.status === 401 || result?.statusCode === 401 || result?.httpStatus === 401) return reauthPayload(app, auth.userId, CONFIG.WORKER_URL);
+  return { success: true, app, tool: action, data: result };
+}
+__name(executePluginNew, "executePluginNew");
+__name2(executePluginNew, "executePluginNew");
 async function executePluginFull(env2, auth, body) {
   const { app, action, params } = body;
   if (!app || !action) {
@@ -6911,12 +6925,16 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
     return { action: "general_chat", prompt: userMessage, reasoning: "Thinking disabled", confidence: 0.5, args: {} };
   }
   const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc);
+  let connected_tools = [];
+  try { connected_tools = await getMcpStyleTools(env2, userId, listIntegrations); } catch {}
+  const connectorThinking = formatMcpStyleToolsForThinking(connected_tools);
   return {
     action: resolved.action,
     prompt: userMessage,
-    reasoning: resolved.reasoning,
+    reasoning: [resolved.reasoning, connectorThinking].filter(Boolean).join("\n\n"),
     confidence: resolved.confidence,
-    args: resolved.args
+    args: resolved.args,
+    connected_tools
   };
 }
 __name(metaThinking2026, "metaThinking2026");
@@ -7300,9 +7318,13 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
     case "integration_status":
       console.log(`\u{1F535} integration_status: User ${auth.userId}`);
       const integrations = await listIntegrations(env2, auth.userId);
+      const mcp_tools = await getMcpStyleTools(env2, auth.userId, listIntegrations);
+      const connected_apps = [...new Set(mcp_tools.filter((t) => t.connected).map((t) => t.app))];
       return new Response(JSON.stringify({
         success: true,
         integrations,
+        mcp_tools,
+        connected_apps,
         availableApps: ["figma", "telegram", "discord", "canva", "wolfram", "zapier", ...GENERIC_OAUTH_PROVIDERS]
       }), {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
@@ -7491,6 +7513,15 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   const sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
   const session = await getSession(env2, ip, auth.userId, sessionId);
   const thinking = await metaThinking2026(env2, message, sessionContext, !!session.lastImage, session.lastImageDesc, auth.isPremium, auth.userId);
+  const matchedConnectorTool = matchConnectorToolFromMessage(message, thinking.connected_tools || []);
+  if (matchedConnectorTool) {
+    const pluginResult = await executePluginNew(env2, auth, { app: matchedConnectorTool.app, action: matchedConnectorTool.action, params: body.pluginParams || {} });
+    if (pluginResult?.success || pluginResult?.error === "reauth_required") {
+      const pluginText = pluginResult?.error === "reauth_required" ? pluginResult.message : JSON.stringify(pluginResult.data);
+      await addMessage(env2, ip, auth.userId, sessionId, message, pluginText, true);
+      return new Response(JSON.stringify({ response: pluginText, intent: "execute_plugin", plugin_thinking: thinking.reasoning, plugin_tools: thinking.connected_tools, plugin: pluginResult }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+  }
   if (thinking.action === "real_photo") {
     const searchResult = await unifiedRealPhotoSearch(thinking.args?.photo_query || thinking.prompt || message);
     if (searchResult.success && searchResult.photos.length > 0) {
