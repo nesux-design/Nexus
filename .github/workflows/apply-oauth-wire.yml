@@ -1,0 +1,41 @@
+name: Apply OAuth Wire
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply oauth wire patch
+        run: |
+          set -e
+          test -f patches/worker-oauth-wire.patch
+          test -f oauth-plugins.js
+          # backup
+          cp worker.ts worker.ts.bak
+          patch -p0 < patches/worker-oauth-wire.patch || patch -p1 < patches/worker-oauth-wire.patch
+          # verify
+          grep -q 'oauth-plugins.js' worker.ts
+          grep -q 'matchPluginFromMessage' worker.ts
+          grep -q 'mcp_tools' worker.ts
+          ! grep -q 'Bot ${token}' worker.ts || (echo 'Bot token still present' && exit 1)
+          wc -c worker.ts
+
+      - name: Commit and push
+        run: |
+          set -e
+          git config user.name "nexus-oauth-wire"
+          git config user.email "nexus-oauth-wire@users.noreply.github.com"
+          git add worker.ts
+          if git diff --cached --quiet; then
+            echo "Already applied"
+            exit 0
+          fi
+          git commit -m "feat: wire oauth-plugins.js into worker (Claude/Grok style)"
+          git push origin HEAD:main
