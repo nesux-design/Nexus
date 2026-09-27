@@ -1,0 +1,205 @@
+--- a/worker.ts
++++ b/worker.ts
+@@ -107,6 +107,16 @@
+ 
+ // worker.js
+ import { env } from "cloudflare:workers";
++import {
++  getPluginToolsForUser,
++  formatPluginsForThinking,
++  matchPluginFromMessage,
++  buildPluginThinkingSteps,
++  thinkingStepsToText,
++  executePluginLayer,
++  reauthPayload,
++  runPluginApi
++} from "./oauth-plugins.js";
+ var __defProp2 = Object.defineProperty;
+ var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
+ var __defProp22 = Object.defineProperty;
+@@ -4124,7 +4134,7 @@
+ __name2(telegramFullControl, "telegramFullControl");
+ async function discordFullControl(token, action, params) {
+   const headers = {
+-    "Authorization": `Bot ${token}`,
++    "Authorization": `Bearer ${token}`,
+     "Content-Type": "application/json"
+   };
+   switch (action) {
+@@ -4146,7 +4156,7 @@
+         formData.append("content", params.content);
+       return await fetch(`https://discord.com/api/v10/channels/${params.channelId}/messages`, {
+         method: "POST",
+-        headers: { "Authorization": `Bot ${token}` },
++        headers: { "Authorization": `Bearer ${token}` },
+         body: formData
+       }).then((r) => r.json());
+     case "create_channel":
+@@ -4359,7 +4369,11 @@
+         result = await telegramFullControl(integration.access_token, action, params);
+         break;
+       case "discord":
+-        result = await discordFullControl(integration.access_token, action, params);
++        if (["get_user","list_guilds","list_channels","list_guild_channels","get_guild"].includes(String(action))) {
++          result = await runPluginApi("discord", action, integration.access_token, params || {}, {});
++        } else {
++          result = await discordFullControl(integration.access_token, action, params);
++        }
+         break;
+       case "wolfram":
+         result = await wolframFullControl(integration.access_token, action, params);
+@@ -6909,15 +6923,30 @@
+ __name22(resolveToolIntent, "resolveToolIntent");
+ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage, lastImageDesc, isPremium, userId) {
+   if (!CONFIG.THINKING_MODE) {
+-    return { action: "general_chat", prompt: userMessage, reasoning: "Thinking disabled", confidence: 0.5, args: {} };
++    return { action: "general_chat", prompt: userMessage, reasoning: "Thinking disabled", confidence: 0.5, args: {}, connected_tools: [], thinking_steps: [] };
+   }
+   const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc);
++  let connected_tools = [];
++  try {
++    if (userId && typeof getPluginToolsForUser === "function") {
++      connected_tools = await getPluginToolsForUser(env2, userId, listIntegrations);
++    }
++  } catch (e) {
++    console.error("plugin tools load", e && e.message);
++  }
++  const pluginBlock = typeof formatPluginsForThinking === "function" ? formatPluginsForThinking(connected_tools) : "";
++  const reasoning = [resolved.reasoning, pluginBlock].filter(Boolean).join("\n\n");
++  const thinking_steps = typeof buildPluginThinkingSteps === "function"
++    ? buildPluginThinkingSteps({ message: userMessage, tools: connected_tools, matched: null, result: null })
++    : [];
+   return {
+     action: resolved.action,
+     prompt: userMessage,
+-    reasoning: resolved.reasoning,
++    reasoning,
+     confidence: resolved.confidence,
+-    args: resolved.args
++    args: resolved.args,
++    connected_tools,
++    thinking_steps
+   };
+ }
+ __name(metaThinking2026, "metaThinking2026");
+@@ -7298,16 +7327,38 @@
+         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
+       });
+     }
+-    case "integration_status":
++    case "integration_status": {
+       console.log(`\u{1F535} integration_status: User ${auth.userId}`);
+       const integrations = await listIntegrations(env2, auth.userId);
++      let mcp_tools = [];
++      try {
++        if (typeof getPluginToolsForUser === "function") {
++          mcp_tools = await getPluginToolsForUser(env2, auth.userId, listIntegrations);
++        }
++      } catch (e) {
++        console.error("integration_status tools", e && e.message);
++      }
++      const connected_apps = {};
++      for (const tool of mcp_tools) {
++        if (!connected_apps[tool.app]) connected_apps[tool.app] = [];
++        connected_apps[tool.app].push({
++          tool: tool.tool,
++          action: tool.action,
++          description: tool.description,
++          scopes_ok: tool.scopes_ok,
++          required_scopes: tool.required_scopes
++        });
++      }
+       return new Response(JSON.stringify({
+         success: true,
+         integrations,
+-        availableApps: ["figma", "telegram", "discord", "canva", "wolfram", "zapier", ...GENERIC_OAUTH_PROVIDERS]
++        mcp_tools,
++        connected_apps,
++        availableApps: Object.keys(connected_apps).length ? Object.keys(connected_apps) : ["figma", "telegram", "discord", "canva", "wolfram", "zapier", ...GENERIC_OAUTH_PROVIDERS]
+       }), {
+         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
+       });
++    }
+     case "integration_connect":
+       console.log(`\u{1F535} integration_connect: User ${auth.userId}, app ${body.app}`);
+       const { app, token } = body;
+@@ -7492,6 +7543,40 @@
+   const sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
+   const session = await getSession(env2, ip, auth.userId, sessionId);
+   const thinking = await metaThinking2026(env2, message, sessionContext, !!session.lastImage, session.lastImageDesc, auth.isPremium, auth.userId);
++  // Claude/Grok-style auto plugin tool call
++  try {
++    const matchedPluginTool = typeof matchPluginFromMessage === "function"
++      ? matchPluginFromMessage(message, thinking.connected_tools || [])
++      : null;
++    if (matchedPluginTool && matchedPluginTool.scopes_ok) {
++      const pluginResult = await executePluginNew(env2, auth, {
++        app: matchedPluginTool.app,
++        action: matchedPluginTool.action || matchedPluginTool.tool,
++        params: body.pluginParams || {}
++      });
++      const steps = typeof buildPluginThinkingSteps === "function"
++        ? buildPluginThinkingSteps({ message, tools: thinking.connected_tools || [], matched: matchedPluginTool, result: pluginResult })
++        : [];
++      const thinkText = typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : (thinking.reasoning || "");
++      const pluginText = pluginResult && pluginResult.error === "reauth_required"
++        ? (pluginResult.message + (pluginResult.reauth_url ? "\nReconnect: " + pluginResult.reauth_url : ""))
++        : (pluginResult && pluginResult.success
++          ? JSON.stringify(pluginResult.data || pluginResult).substring(0, 4000)
++          : JSON.stringify(pluginResult).substring(0, 4000));
++      await addMessage(env2, ip, auth.userId, sessionId, message, pluginText, true);
++      return new Response(JSON.stringify({
++        response: pluginText,
++        thinking: thinkText,
++        thinking_steps: steps,
++        intent: "execute_plugin",
++        plugin: { app: matchedPluginTool.app, tool: matchedPluginTool.tool, result: pluginResult },
++        connected_tools: thinking.connected_tools,
++        model: "plugin"
++      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
++    }
++  } catch (e) {
++    console.error("auto plugin", e && e.message);
++  }
+   if (thinking.action === "real_photo") {
+     const searchResult = await unifiedRealPhotoSearch(thinking.args?.photo_query || thinking.prompt || message);
+     if (searchResult.success && searchResult.photos.length > 0) {
+@@ -8246,7 +8331,7 @@
+   console.log(`\u{1F535} executePluginNew: integration = ${integration ? "FOUND" : "NOT FOUND"}`);
+   if (!integration && !isTelegramAuth) {
+     console.log(`\u{1F534} executePluginNew: ${app} not connected for user ${auth.userId}`);
+-    return { success: false, error: `${app} not connected. Please connect first.` };
++    return typeof reauthPayload === "function" ? reauthPayload(app, auth.userId, CONFIG.WORKER_URL) : { success: false, error: `${app} not connected. Please connect first.` };
+   }
+   const token = integration?.access_token;
+   const sessionString = integration?.session_string;
+@@ -8317,6 +8402,13 @@
+         break;
+       }
+       case "discord":
++        if (["get_user","list_guilds","list_channels","list_guild_channels","get_guild"].includes(String(action))) {
++          result = await runPluginApi("discord", action, token, params || {}, {});
++          if (result && (result.status === 401 || result.httpStatus === 401)) {
++            return reauthPayload("discord", auth.userId, CONFIG.WORKER_URL);
++          }
++          break;
++        }
+         result = await discordFullControl(token, action, params);
+         break;
+       case "canva":
+@@ -8336,7 +8428,14 @@
+           result = await genericAuthenticatedApiCall(token, params.method || "GET", params.endpoint, params.body, params.headers);
+           break;
+         }
+-        console.log(`\u{1F534} executePluginNew: Unknown app ${app}`);
++        if (typeof runPluginApi === "function") {
++          result = await runPluginApi(String(app).toLowerCase(), action, token, params || {}, { clientId: env2.TWITCH_CLIENT_ID });
++          if (result && (result.status === 401 || result.httpStatus === 401)) {
++            return reauthPayload(app, auth.userId, CONFIG.WORKER_URL);
++          }
++          break;
++        }
++        console.log(`Unknown app ${app}`);
+         return { success: false, error: `Unknown app: ${app}` };
+     }
+   } catch (error) {

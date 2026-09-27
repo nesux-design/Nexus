@@ -17,15 +17,17 @@ jobs:
           set -e
           test -f patches/worker-oauth-wire.patch
           test -f oauth-plugins.js
-          # backup
           cp worker.ts worker.ts.bak
-          patch -p0 < patches/worker-oauth-wire.patch || patch -p1 < patches/worker-oauth-wire.patch
-          # verify
+          patch -p1 < patches/worker-oauth-wire.patch
           grep -q 'oauth-plugins.js' worker.ts
           grep -q 'matchPluginFromMessage' worker.ts
           grep -q 'mcp_tools' worker.ts
-          ! grep -q 'Bot ${token}' worker.ts || (echo 'Bot token still present' && exit 1)
+          if grep -q 'Bot ${token}' worker.ts; then
+            echo "ERROR: Bot token still present"
+            exit 1
+          fi
           wc -c worker.ts
+          echo "PATCH OK"
 
       - name: Commit and push
         run: |
