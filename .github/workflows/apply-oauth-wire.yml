@@ -11,23 +11,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Apply oauth wire patch
+      - name: Restore worker.ts from known-good + apply oauth wire
         run: |
           set -e
-          test -f patches/worker-oauth-wire.patch
+          GOOD=765d2e511fca34a21315e75bbc8c7ae4457c7829
+          git show "$GOOD:worker.ts" > worker.ts
+          SIZE=$(wc -c < worker.ts)
+          echo "restored size=$SIZE"
+          test "$SIZE" -gt 100000
           test -f oauth-plugins.js
-          cp worker.ts worker.ts.bak
-          patch -p1 < patches/worker-oauth-wire.patch
+          test -f scripts/apply_oauth_wire.py
+          python3 scripts/apply_oauth_wire.py
           grep -q 'oauth-plugins.js' worker.ts
           grep -q 'matchPluginFromMessage' worker.ts
           grep -q 'mcp_tools' worker.ts
-          if grep -q 'Bot ${token}' worker.ts; then
-            echo "ERROR: Bot token still present"
-            exit 1
-          fi
+          if grep -q 'Bot ${token}' worker.ts; then echo 'Bot still present'; exit 1; fi
           wc -c worker.ts
-          echo "PATCH OK"
+          echo PATCH_OK
 
       - name: Commit and push
         run: |
@@ -36,7 +39,7 @@ jobs:
           git config user.email "nexus-oauth-wire@users.noreply.github.com"
           git add worker.ts
           if git diff --cached --quiet; then
-            echo "Already applied"
+            echo Already applied
             exit 0
           fi
           git commit -m "feat: wire oauth-plugins.js into worker (Claude/Grok style)"
