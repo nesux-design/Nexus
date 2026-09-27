@@ -1,0 +1,16 @@
+--- a/worker.ts
++++ b/worker.ts
+@@ -108,4 +108,14 @@
+ // worker.js
+ import { env } from "cloudflare:workers";
++import {
++  getPluginToolsForUser,
++  formatPluginsForThinking,
++  matchPluginFromMessage,
++  buildPluginThinkingSteps,
++  thinkingStepsToText,
++  executePluginLayer,
++  reauthPayload,
++  runPluginApi
++} from "./oauth-plugins.js";
+ var __defProp2 = Object.defineProperty;
