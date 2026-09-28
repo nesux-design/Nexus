@@ -14,33 +14,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore worker.ts from known-good + apply oauth wire
+      - name: Restore wired worker + apply agentic LLM plugins
         run: |
           set -e
-          GOOD=765d2e511fca34a21315e75bbc8c7ae4457c7829
-          git show "$GOOD:worker.ts" > worker.ts
-          SIZE=$(wc -c < worker.ts)
-          echo "restored size=$SIZE"
-          test "$SIZE" -gt 100000
+          # Base: first successful oauth wire commit
+          BASE=c4279c9eb543bd71253b4058587ee6d8e45324ae
+          git show "$BASE:worker.ts" > worker.ts
+          test $(wc -c < worker.ts) -gt 100000
           test -f oauth-plugins.js
-          test -f scripts/apply_oauth_wire.py
-          python3 scripts/apply_oauth_wire.py
-          grep -q 'oauth-plugins.js' worker.ts
-          grep -q 'matchPluginFromMessage' worker.ts
-          grep -q 'mcp_tools' worker.ts
-          if grep -q 'Bot ${token}' worker.ts; then echo 'Bot still present'; exit 1; fi
+          test -f scripts/apply_agentic_plugins.py
+          python3 scripts/apply_agentic_plugins.py
+          grep -q 'buildPluginAnswerPrompt' worker.ts
+          grep -q 'pluginDecls' worker.ts
+          grep -q 'plugin+llm' worker.ts
           wc -c worker.ts
-          echo PATCH_OK
+          echo AGENTIC_OK
 
       - name: Commit and push
         run: |
           set -e
           git config user.name "nexus-oauth-wire"
           git config user.email "nexus-oauth-wire@users.noreply.github.com"
-          git add worker.ts
-          if git diff --cached --quiet; then
-            echo Already applied
-            exit 0
-          fi
-          git commit -m "feat: wire oauth-plugins.js into worker (Claude/Grok style)"
+          git add worker.ts oauth-plugins.js scripts/apply_agentic_plugins.py
+          if git diff --cached --quiet; then echo no change; exit 0; fi
+          git commit -m "feat: agentic Claude/Grok style plugins (LLM tool choice + natural answers)"
           git push origin HEAD:main
