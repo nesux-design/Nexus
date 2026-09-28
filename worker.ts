@@ -115,7 +115,11 @@ import {
   thinkingStepsToText,
   executePluginLayer,
   reauthPayload,
-  runPluginApi
+  runPluginApi,
+  pluginToolsToGeminiDeclarations,
+  pluginToolsToOpenAITools,
+  parsePluginFunctionName,
+  buildPluginAnswerPrompt
 } from "./oauth-plugins.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
@@ -6821,7 +6825,7 @@ async function executeCodeViaGemini(codeRequest) {
 __name(executeCodeViaGemini, "executeCodeViaGemini");
 __name2(executeCodeViaGemini, "executeCodeViaGemini");
 __name22(executeCodeViaGemini, "executeCodeViaGemini");
-async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc) {
+async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls) {
   const key = getNextKey("gemini");
   if (!key)
     return null;
@@ -6833,7 +6837,7 @@ async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDes
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc) }] }],
-          tools: [{ functionDeclarations: getToolDeclarations() }],
+          tools: [{ functionDeclarations: getToolDeclarations().concat(pluginDecls || []) }],
           toolConfig: { functionCallingConfig: { mode: "AUTO" } },
           generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
         }),
@@ -6851,6 +6855,12 @@ async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDes
     if (fnCallPart && fnCallPart.functionCall) {
       const toolName = fnCallPart.functionCall.name;
       const args = fnCallPart.functionCall.args || {};
+      if (String(toolName).startsWith("plugin_") && typeof parsePluginFunctionName === "function") {
+        const parsed = parsePluginFunctionName(toolName);
+        if (parsed) {
+          return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.95, resolvedBy: "gemini", pluginTool: toolName };
+        }
+      }
       return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.95, resolvedBy: "gemini" };
     }
     return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.9, resolvedBy: "gemini" };
@@ -6861,7 +6871,7 @@ async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDes
 __name(resolveViaGemini, "resolveViaGemini");
 __name2(resolveViaGemini, "resolveViaGemini");
 __name22(resolveViaGemini, "resolveViaGemini");
-async function resolveViaOpenAICompatible(providerName, endpoint, model, userMessage, context, hasLastImage, lastImageDesc) {
+async function resolveViaOpenAICompatible(providerName, endpoint, model, userMessage, context, hasLastImage, lastImageDesc, pluginOpenAITools) {
   const key = getNextKey(providerName);
   if (!key)
     return null;
@@ -6872,7 +6882,7 @@ async function resolveViaOpenAICompatible(providerName, endpoint, model, userMes
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc) }],
-        tools: getOpenAIStyleTools(),
+        tools: getOpenAIStyleTools().concat(pluginOpenAITools || []),
         tool_choice: "auto",
         temperature: 0.1,
         max_tokens: 300
@@ -6893,6 +6903,12 @@ async function resolveViaOpenAICompatible(providerName, endpoint, model, userMes
         args = JSON.parse(toolCall.function.arguments || "{}");
       } catch (e) {
       }
+      if (String(toolName).startsWith("plugin_") && typeof parsePluginFunctionName === "function") {
+        const parsed = parsePluginFunctionName(toolName);
+        if (parsed) {
+          return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.9, resolvedBy: providerName, pluginTool: toolName };
+        }
+      }
       return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.9, resolvedBy: providerName };
     }
     return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.85, resolvedBy: providerName };
@@ -6903,17 +6919,19 @@ async function resolveViaOpenAICompatible(providerName, endpoint, model, userMes
 __name(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
 __name2(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
 __name22(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
-async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc) {
-  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc);
+async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools) {
+  const pluginDecls = typeof pluginToolsToGeminiDeclarations === "function" ? pluginToolsToGeminiDeclarations(connected_tools || []) : [];
+  const pluginOpenAI = typeof pluginToolsToOpenAITools === "function" ? pluginToolsToOpenAITools(connected_tools || []) : [];
+  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls);
   if (geminiResult)
     return geminiResult;
-  const groqResult = await resolveViaOpenAICompatible("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc);
+  const groqResult = await resolveViaOpenAICompatible("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
   if (groqResult)
     return groqResult;
-  const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc);
+  const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
   if (cerebrasResult)
     return cerebrasResult;
-  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc);
+  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
   if (openDeepResult)
     return openDeepResult;
   return { action: "general_chat", args: {}, reasoning: "All tool resolvers unavailable", confidence: 0.3, resolvedBy: "none" };
@@ -6925,7 +6943,6 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
   if (!CONFIG.THINKING_MODE) {
     return { action: "general_chat", prompt: userMessage, reasoning: "Thinking disabled", confidence: 0.5, args: {}, connected_tools: [], thinking_steps: [] };
   }
-  const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc);
   let connected_tools = [];
   try {
     if (userId && typeof getPluginToolsForUser === "function") {
@@ -6934,10 +6951,15 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
   } catch (e) {
     console.error("plugin tools load", e && e.message);
   }
+  const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools);
   const pluginBlock = typeof formatPluginsForThinking === "function" ? formatPluginsForThinking(connected_tools) : "";
   const reasoning = [resolved.reasoning, pluginBlock].filter(Boolean).join("\n\n");
+  let matched = null;
+  if (resolved.action === "execute_plugin" && resolved.args) {
+    matched = { app: resolved.args.app, tool: resolved.args.action, action: resolved.args.action, description: resolved.reasoning };
+  }
   const thinking_steps = typeof buildPluginThinkingSteps === "function"
-    ? buildPluginThinkingSteps({ message: userMessage, tools: connected_tools, matched: null, result: null })
+    ? buildPluginThinkingSteps({ message: userMessage, tools: connected_tools, matched, result: null, phase: "model_decide" })
     : [];
   return {
     action: resolved.action,
@@ -6946,7 +6968,8 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
     confidence: resolved.confidence,
     args: resolved.args,
     connected_tools,
-    thinking_steps
+    thinking_steps,
+    pluginTool: resolved.pluginTool || null
   };
 }
 __name(metaThinking2026, "metaThinking2026");
@@ -7543,39 +7566,28 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   const sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
   const session = await getSession(env2, ip, auth.userId, sessionId);
   const thinking = await metaThinking2026(env2, message, sessionContext, !!session.lastImage, session.lastImageDesc, auth.isPremium, auth.userId);
-  // Claude/Grok-style auto plugin tool call
-  try {
-    const matchedPluginTool = typeof matchPluginFromMessage === "function"
-      ? matchPluginFromMessage(message, thinking.connected_tools || [])
-      : null;
-    if (matchedPluginTool && matchedPluginTool.scopes_ok) {
-      const pluginResult = await executePluginNew(env2, auth, {
-        app: matchedPluginTool.app,
-        action: matchedPluginTool.action || matchedPluginTool.tool,
-        params: body.pluginParams || {}
-      });
-      const steps = typeof buildPluginThinkingSteps === "function"
-        ? buildPluginThinkingSteps({ message, tools: thinking.connected_tools || [], matched: matchedPluginTool, result: pluginResult })
-        : [];
-      const thinkText = typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : (thinking.reasoning || "");
-      const pluginText = pluginResult && pluginResult.error === "reauth_required"
-        ? (pluginResult.message + (pluginResult.reauth_url ? "\nReconnect: " + pluginResult.reauth_url : ""))
-        : (pluginResult && pluginResult.success
-          ? JSON.stringify(pluginResult.data || pluginResult).substring(0, 4000)
-          : JSON.stringify(pluginResult).substring(0, 4000));
-      await addMessage(env2, ip, auth.userId, sessionId, message, pluginText, true);
-      return new Response(JSON.stringify({
-        response: pluginText,
-        thinking: thinkText,
-        thinking_steps: steps,
-        intent: "execute_plugin",
-        plugin: { app: matchedPluginTool.app, tool: matchedPluginTool.tool, result: pluginResult },
-        connected_tools: thinking.connected_tools,
-        model: "plugin"
-      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  if (thinking.action === "execute_plugin") {
+    const app = thinking.args?.app;
+    const pluginAction = thinking.args?.action || thinking.args?.tool;
+    const pluginParams = { ...(thinking.args || {}) };
+    delete pluginParams.app; delete pluginParams.action; delete pluginParams.tool;
+    const pluginResult = await executePluginNew(env2, auth, { app, action: pluginAction, params: pluginParams });
+    const steps = typeof buildPluginThinkingSteps === "function" ? buildPluginThinkingSteps({ message, tools: thinking.connected_tools || [], matched: { app, tool: pluginAction, action: pluginAction, description: thinking.reasoning }, result: pluginResult, phase: "model_decide" }) : [];
+    if (pluginResult && pluginResult.error === "reauth_required") {
+      const msg = (pluginResult.message || "Please reconnect") + (pluginResult.reauth_url ? "\n" + pluginResult.reauth_url : "");
+      await addMessage(env2, ip, auth.userId, sessionId, message, msg, true);
+      return new Response(JSON.stringify({ response: msg, thinking: typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : thinking.reasoning, thinking_steps: steps, intent: "execute_plugin", plugin: { app, tool: pluginAction, result: pluginResult }, connected_tools: thinking.connected_tools, model: "plugin" }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
-  } catch (e) {
-    console.error("auto plugin", e && e.message);
+    const rawData = pluginResult?.data !== undefined ? pluginResult.data : pluginResult;
+    const answerPrompt = typeof buildPluginAnswerPrompt === "function" ? buildPluginAnswerPrompt(message, app, pluginAction, rawData) : ("User: " + message + "\nData: " + JSON.stringify(rawData).substring(0, 8000));
+    let natural = null;
+    try {
+      const aiOut = await callGeminiOrGroq(answerPrompt, [{ role: "user", content: answerPrompt }], { temperature: 0.4, maxTokens: 1200, useWebSearch: false });
+      natural = aiOut?.result || aiOut?.text || null;
+    } catch (e) { console.error("plugin answer synth", e && e.message); }
+    if (!natural) natural = typeof rawData === "string" ? rawData : JSON.stringify(rawData, null, 2).substring(0, 4000);
+    await addMessage(env2, ip, auth.userId, sessionId, message, natural, true);
+    return new Response(JSON.stringify({ response: natural, thinking: typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : thinking.reasoning, thinking_steps: steps, intent: "execute_plugin", plugin: { app, tool: pluginAction, result: pluginResult }, connected_tools: thinking.connected_tools, model: "plugin+llm" }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   }
   if (thinking.action === "real_photo") {
     const searchResult = await unifiedRealPhotoSearch(thinking.args?.photo_query || thinking.prompt || message);
