@@ -47,8 +47,40 @@ export async function getPluginToolsForUser(env,userId,listIntegrationsFn){const
 export function pluginToolsToGeminiDeclarations(tools){const decls=[];for(const t of tools||[]){if(!t.scopes_ok)continue;const props={};const required=[];for(const p of t.params||[]){props[p]={type:"string",description:p};required.push(p);}decls.push({name:`plugin_${t.app}_${t.action||t.tool}`,description:`[Connected plugin: ${t.app}] ${t.description}. Only use if the user needs live data from ${t.app}.`,parameters:{type:"object",properties:props,...(required.length?{required}:{})}});}return decls;}
 export function pluginToolsToOpenAITools(tools){return pluginToolsToGeminiDeclarations(tools).map(d=>({type:"function",function:{name:d.name,description:d.description,parameters:d.parameters}}));}
 export function parsePluginFunctionName(name){const n=String(name||"");if(!n.startsWith("plugin_"))return null;const rest=n.slice(7);const i=rest.indexOf("_");if(i<0)return null;return{app:rest.slice(0,i),action:rest.slice(i+1)};}
-export function formatPluginsForThinking(tools){if(!tools?.length)return"Connected SaaS plugins: none.";const ok=tools.filter(t=>t.scopes_ok);return"Connected SaaS plugins the model may call:\n"+ok.map(t=>`- plugin_${t.app}_${t.action}: ${t.description}`).join("\n")+"\nCall plugin_* when live account data is needed.";}
-export function buildPluginThinkingSteps({message,tools,matched,result,phase}){const steps=[];steps.push({title:"Read user message",detail:String(message||"").slice(0,200),status:"done"});const apps=[...new Set((tools||[]).map(t=>t.app))];steps.push({title:"Available connected plugins",detail:apps.length?apps.join(", "):"none",status:"done"});if(phase==="model_decide")steps.push({title:"Model choosing tool (function calling)",detail:"AUTO mode like Claude/ChatGPT",status:"done"});if(matched)steps.push({title:`Use tool ${matched.app}.${matched.tool||matched.action}`,detail:matched.description||"",status:"done"});if(result){if(result.error==="reauth_required")steps.push({title:"Re-authorization required",detail:result.reauth_url||result.app,status:"blocked"});else if(result.success!==false&&!result.error){steps.push({title:"Plugin data fetched",detail:`${result.app||matched?.app||""}.${result.tool||result.action||matched?.tool||""}`,status:"done"});steps.push({title:"Write natural answer from data",detail:"Synthesize like Claude/Grok",status:"done"});}else steps.push({title:"Plugin error",detail:String(result.error||result.message||""),status:"error"});}return steps;}
+export function formatPluginsForThinking(tools){
+  if (!tools?.length) return "No connected plugins.";
+  const apps = [...new Set(tools.filter(t => t.scopes_ok).map(t => t.app))];
+  return apps.length ? ("Connected apps: " + apps.join(", ") + ".") : "No connected plugins.";
+}
+export function buildPluginThinkingSteps({ message, tools, matched, result, phase }) {
+  const steps = [];
+  const msg = String(message || "").trim().slice(0, 120);
+  if (msg) steps.push({ title: "Understanding request", detail: msg, status: "done" });
+  const apps = [...new Set((tools || []).filter(t => t.scopes_ok).map(t => t.app))];
+  if (apps.length) steps.push({ title: "Checking connected apps", detail: apps.join(", "), status: "done" });
+  if (phase === "model_decide" || matched) {
+    steps.push({ title: "Selecting tool", detail: matched ? (matched.app + "." + (matched.tool || matched.action)) : "auto", status: "done" });
+  }
+  if (matched) {
+    const raw = matched.description ? String(matched.description).split("\n")[0] : "";
+    const label = raw.length && raw.length < 80 ? raw : ((matched.app || "") + "." + (matched.tool || matched.action || ""));
+    steps.push({ title: "Running " + (matched.app || "plugin") + " tool", detail: label, status: "done" });
+  }
+  if (result) {
+    if (result.error === "reauth_required") {
+      steps.push({ title: "Needs reconnection", detail: result.app || "", status: "blocked" });
+    } else if (result.success === false || result.error) {
+      steps.push({ title: "Tool failed", detail: String(result.error || result.message || "").slice(0, 100), status: "error" });
+    } else {
+      const data = result.data;
+      let summary = (result.app || matched?.app || "") + "." + (result.tool || result.action || matched?.tool || "");
+      if (Array.isArray(data)) summary += " → " + data.length + " items";
+      steps.push({ title: "Got live data", detail: summary, status: "done" });
+      steps.push({ title: "Writing answer", detail: "From live data", status: "done" });
+    }
+  }
+  return steps;
+}
 export function thinkingStepsToText(steps){return(steps||[]).map((s,i)=>`${i+1}. ${s.title}${s.detail?": "+s.detail:""}`).join("\n");}
 const KEYWORDS={list_guilds:["discord servers","my servers","guilds","list guilds"],get_user:["discord profile"],get_playback:["now playing","spotify playing"],list_repos:["github repos","my repos"],list_pages:["notion pages"],list_channels:["slack channels"]};
 export function matchPluginFromMessage(message,tools){if(!message||!tools?.length)return null;const msg=String(message).toLowerCase();const ordered=[...tools].sort((a,b)=>(String(a.tool).startsWith("list")?0:1)-(String(b.tool).startsWith("list")?0:1));for(const t of ordered){if(!t.scopes_ok)continue;for(const k of KEYWORDS[t.tool]||KEYWORDS[t.action]||[])if(msg.includes(k))return t;}return null;}
