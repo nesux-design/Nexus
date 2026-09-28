@@ -14,18 +14,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore wired worker + apply agentic LLM plugins
+      - name: Restore wired worker + agentic LLM plugins
         run: |
           set -e
-          # Base: first successful oauth wire commit
           BASE=c4279c9eb543bd71253b4058587ee6d8e45324ae
           git show "$BASE:worker.ts" > worker.ts
           test $(wc -c < worker.ts) -gt 100000
           test -f oauth-plugins.js
           test -f scripts/apply_agentic_plugins.py
           python3 scripts/apply_agentic_plugins.py
-          grep -q 'buildPluginAnswerPrompt' worker.ts
-          grep -q 'pluginDecls' worker.ts
+          grep -q buildPluginAnswerPrompt worker.ts
+          grep -q pluginDecls worker.ts
           grep -q 'plugin+llm' worker.ts
           wc -c worker.ts
           echo AGENTIC_OK
@@ -35,7 +34,7 @@ jobs:
           set -e
           git config user.name "nexus-oauth-wire"
           git config user.email "nexus-oauth-wire@users.noreply.github.com"
-          git add worker.ts oauth-plugins.js scripts/apply_agentic_plugins.py
+          git add worker.ts
           if git diff --cached --quiet; then echo no change; exit 0; fi
-          git commit -m "feat: agentic Claude/Grok style plugins (LLM tool choice + natural answers)"
+          git commit -m "feat: agentic Claude/Grok plugins (LLM chooses tools + natural answers)"
           git push origin HEAD:main
