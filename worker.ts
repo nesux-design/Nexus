@@ -4424,9 +4424,20 @@ async function executePluginFull(env2, auth, body) {
         result = await zapierFullControl(integration.access_token, params);
         break;
       default:
+        if (typeof runPluginApi === "function") {
+          const pluginResult = await runPluginApi(String(app).toLowerCase(), action, integration.access_token, params || {}, {});
+          const unsupported = pluginResult && typeof pluginResult.error === "string" && String(pluginResult.error).startsWith("Unsupported");
+          if (!unsupported) {
+            if (pluginResult && (pluginResult.status === 401 || pluginResult.httpStatus === 401)) {
+              return { error: "reauth_required", app };
+            }
+            result = pluginResult;
+            break;
+          }
+        }
         if (GENERIC_OAUTH_PROVIDERS.includes(app) || ["google", "gmail", "github"].includes(app)) {
           if (!params || !params.endpoint) {
-            return { error: `To use ${app}, provide 'endpoint' (full API URL) and optionally 'method' (GET/POST/etc), 'body', and 'headers' in params.` };
+            return { error: `No built-in API for ${app}.${action}. Provide endpoint or extend runPluginApi.` };
           }
           const apiResult = await genericAuthenticatedApiCall(
             integration.access_token,
@@ -8506,18 +8517,23 @@ async function executePluginNew(env2, auth, body) {
         result = await zapierFullControl(token, params);
         break;
       default:
+        // Claude-style: known plugin APIs first (spotify/slack/notion/...), raw endpoint only as fallback
+        if (typeof runPluginApi === "function") {
+          const pluginResult = await runPluginApi(String(app).toLowerCase(), action, token, params || {}, { clientId: env2.TWITCH_CLIENT_ID });
+          const unsupported = pluginResult && typeof pluginResult.error === "string" && String(pluginResult.error).startsWith("Unsupported");
+          if (!unsupported) {
+            if (pluginResult && (pluginResult.status === 401 || pluginResult.httpStatus === 401)) {
+              return reauthPayload(app, auth.userId, CONFIG.WORKER_URL);
+            }
+            result = pluginResult;
+            break;
+          }
+        }
         if (GENERIC_OAUTH_PROVIDERS.includes(app)) {
           if (!params?.endpoint) {
-            return { success: false, error: `Provide params.endpoint (full API URL) for ${app}. NEXUS should know this API's shape.` };
+            return { success: false, error: `No built-in API for ${app}.${action}. Provide params.endpoint or add it to oauth-plugins runPluginApi.` };
           }
           result = await genericAuthenticatedApiCall(token, params.method || "GET", params.endpoint, params.body, params.headers);
-          break;
-        }
-        if (typeof runPluginApi === "function") {
-          result = await runPluginApi(String(app).toLowerCase(), action, token, params || {}, { clientId: env2.TWITCH_CLIENT_ID });
-          if (result && (result.status === 401 || result.httpStatus === 401)) {
-            return reauthPayload(app, auth.userId, CONFIG.WORKER_URL);
-          }
           break;
         }
         console.log(`Unknown app ${app}`);
