@@ -14,27 +14,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore wired worker + agentic LLM plugins
+      - name: Apply OAuth userId + Claude plugin force fix
         run: |
           set -e
-          BASE=c4279c9eb543bd71253b4058587ee6d8e45324ae
-          git show "$BASE:worker.ts" > worker.ts
-          test $(wc -c < worker.ts) -gt 100000
-          test -f oauth-plugins.js
-          test -f scripts/apply_agentic_plugins.py
-          python3 scripts/apply_agentic_plugins.py
-          grep -q buildPluginAnswerPrompt worker.ts
-          grep -q pluginDecls worker.ts
-          grep -q 'plugin+llm' worker.ts
+          test -f worker.ts
+          test -f scripts/fix_oauth_userid.py
+          python3 scripts/fix_oauth_userid.py
+          grep -q 'provider: "discord", userId' worker.ts
+          grep -q FORCE_PLUGIN_FALLBACK worker.ts
+          grep -q pluginHint worker.ts
           wc -c worker.ts
-          echo AGENTIC_OK
+          echo FIX_OK
 
       - name: Commit and push
         run: |
           set -e
           git config user.name "nexus-oauth-wire"
           git config user.email "nexus-oauth-wire@users.noreply.github.com"
-          git add worker.ts
+          git add worker.ts scripts/fix_oauth_userid.py
           if git diff --cached --quiet; then echo no change; exit 0; fi
-          git commit -m "feat: agentic Claude/Grok plugins (LLM chooses tools + natural answers)"
+          git commit -m "fix: OAuth userId binding + Claude-style plugin force (no fake cannot access)"
           git push origin HEAD:main
