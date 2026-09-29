@@ -794,9 +794,11 @@ async function handleGenericOAuthCallback(env2, request, provider) {
 }
 __name(handleGenericOAuthCallback, "handleGenericOAuthCallback");
 __name2(handleGenericOAuthCallback, "handleGenericOAuthCallback");
-async function handleFigmaOAuth(env2) {
+async function handleFigmaOAuth(env2, request) {
+  const url = new URL(request.url);
+  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
   const state = generatenewId();
-  await env2.KV.put("oauth_state:" + state, "figma", { expirationTtl: 300 });
+  await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "figma", userId }), { expirationTtl: 300 });
   return redirect(generateOAuthUrl("figma", state));
 }
 __name(handleFigmaOAuth, "handleFigmaOAuth");
@@ -806,9 +808,11 @@ async function handleFigmaOAuthCallback(env2, request) {
 }
 __name(handleFigmaOAuthCallback, "handleFigmaOAuthCallback");
 __name2(handleFigmaOAuthCallback, "handleFigmaOAuthCallback");
-async function handleDiscordOAuth(env2) {
+async function handleDiscordOAuth(env2, request) {
+  const url = new URL(request.url);
+  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
   const state = generatenewId();
-  await env2.KV.put("oauth_state:" + state, "discord", { expirationTtl: 300 });
+  await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "discord", userId }), { expirationTtl: 300 });
   return redirect(generateOAuthUrl("discord", state));
 }
 __name(handleDiscordOAuth, "handleDiscordOAuth");
@@ -818,9 +822,11 @@ async function handleDiscordOAuthCallback(env2, request) {
 }
 __name(handleDiscordOAuthCallback, "handleDiscordOAuthCallback");
 __name2(handleDiscordOAuthCallback, "handleDiscordOAuthCallback");
-async function handleCanvaOAuth(env2) {
+async function handleCanvaOAuth(env2, request) {
+  const url = new URL(request.url);
+  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
   const state = generatenewId();
-  await env2.KV.put("oauth_state:" + state, "canva", { expirationTtl: 300 });
+  await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "canva", userId }), { expirationTtl: 300 });
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   await env2.KV.put("oauth_code_verifier:" + state, codeVerifier, { expirationTtl: 300 });
@@ -855,7 +861,18 @@ async function handleCanvaOAuthCallback(env2, request) {
     }, 400);
   }
   const stored = await env2.KV.get("oauth_state:" + state);
-  if (!stored || stored !== "canva") {
+  let userId = request.headers.get("X-User-ID") || "test_user";
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed && parsed.userId) userId = parsed.userId;
+      if (parsed && parsed.provider && parsed.provider !== "canva") {
+        return jsonResponse({ error: "Invalid state" }, 400);
+      }
+    } catch {
+      if (stored !== "canva") return jsonResponse({ error: "Invalid state" }, 400);
+    }
+  } else {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
   const codeVerifier = await env2.KV.get("oauth_code_verifier:" + state);
@@ -863,7 +880,6 @@ async function handleCanvaOAuthCallback(env2, request) {
   if (!tokenData.access_token) {
     return jsonResponse({ error: "Failed to get token" }, 400);
   }
-  const userId = request.headers.get("X-User-ID") || "test_user";
   let configData = {};
   try {
     const designsResponse = await fetch("https://api.canva.com/v1/designs?ownership=any&limit=50", {
@@ -903,7 +919,26 @@ async function handleStandardOAuthCallback(env2, request, provider) {
     return jsonResponse({ error: "No code" }, 400);
   }
   const stored = await env2.KV.get("oauth_state:" + state);
-  if (!stored || stored !== provider) {
+  let storedProvider = provider;
+  let userId = request.headers.get("X-User-ID") || "test_user";
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed && parsed.provider) {
+        storedProvider = parsed.provider;
+        if (parsed.userId) userId = parsed.userId;
+      } else if (stored !== provider) {
+        return jsonResponse({ error: "Invalid state" }, 400);
+      }
+    } catch {
+      if (stored !== provider) {
+        return jsonResponse({ error: "Invalid state" }, 400);
+      }
+    }
+  } else {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  if (storedProvider !== provider) {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
   let tokenData;
@@ -930,12 +965,12 @@ async function handleStandardOAuthCallback(env2, request, provider) {
   if (!tokenData.access_token) {
     return jsonResponse({ error: "Failed to get token" }, 400);
   }
-  const userId = request.headers.get("X-User-ID") || "test_user";
   const configData = {};
   await storeIntegration(env2, userId, provider, {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
+    scope: tokenData.scope || (OAUTH_CONFIG[provider] && OAUTH_CONFIG[provider].scopes) || "",
     config: configData
   });
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=${provider}&status=connected&userId=${userId}`;
@@ -6767,16 +6802,23 @@ function getOpenAIStyleTools() {
 __name(getOpenAIStyleTools, "getOpenAIStyleTools");
 __name2(getOpenAIStyleTools, "getOpenAIStyleTools");
 __name22(getOpenAIStyleTools, "getOpenAIStyleTools");
-function buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc) {
+function buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc, pluginHint) {
   const contextLine = context ? `
 
 Recent conversation context: ${context.substring(0, 300)}` : "";
   const imageLine = hasLastImage ? `
 
 The user recently shared an image described as: "${lastImageDesc || ""}"` : "";
-  return `User message: "${userMessage}"${contextLine}${imageLine}
+  const pluginsLine = pluginHint ? `
 
-If this request needs one of your available tools/functions, call the single most appropriate one with the right arguments. If it is just normal conversation, a question you can answer directly, an opinion, or anything that does not need a tool, do NOT call any function \u2014 just respond normally.`;
+CONNECTED USER PLUGINS (Claude/ChatGPT style — you MUST call the matching plugin_* function for live account data; never invent Discord/Spotify/Slack/etc data; never say you cannot access their account if a plugin tool exists):
+${pluginHint}` : "";
+  return `User message: "${userMessage}"${contextLine}${imageLine}${pluginsLine}
+
+Rules:
+1. If the user asks about their Discord/Spotify/Slack/Notion/GitHub/etc account data and a matching plugin_* tool is available, you MUST call that plugin_* function.
+2. If this needs a built-in tool (image, reminder, search, etc.), call it.
+3. Only skip tools for pure chitchat with no data/action need.`;
 }
 __name(buildToolResolverUserText, "buildToolResolverUserText");
 __name2(buildToolResolverUserText, "buildToolResolverUserText");
@@ -6836,7 +6878,7 @@ async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDes
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc) }] }],
+          contents: [{ role: "user", parts: [{ text: buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc, (pluginDecls || []).map(d => d.name + ": " + d.description).join("\n")) }] }],
           tools: [{ functionDeclarations: getToolDeclarations().concat(pluginDecls || []) }],
           toolConfig: { functionCallingConfig: { mode: "AUTO" } },
           generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
@@ -6881,7 +6923,7 @@ async function resolveViaOpenAICompatible(providerName, endpoint, model, userMes
       headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content: buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc) }],
+        messages: [{ role: "user", content: buildToolResolverUserText(userMessage, context, hasLastImage, lastImageDesc, (pluginOpenAITools || []).map(d => (d.function && d.function.name) + ": " + (d.function && d.function.description)).join("\n")) }],
         tools: getOpenAIStyleTools().concat(pluginOpenAITools || []),
         tool_choice: "auto",
         temperature: 0.1,
@@ -7566,6 +7608,37 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   const sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
   const session = await getSession(env2, ip, auth.userId, sessionId);
   const thinking = await metaThinking2026(env2, message, sessionContext, !!session.lastImage, session.lastImageDesc, auth.isPremium, auth.userId);
+  // FORCE_PLUGIN_FALLBACK: Claude-style — if model skipped tools but user clearly needs a connected plugin, force it
+  if (thinking.action === "general_chat" && thinking.connected_tools && thinking.connected_tools.length && typeof matchPluginFromMessage === "function") {
+    const forced = matchPluginFromMessage(message, thinking.connected_tools);
+    if (forced && forced.scopes_ok) {
+      thinking.action = "execute_plugin";
+      thinking.args = { app: forced.app, action: forced.action || forced.tool };
+      thinking.reasoning = (thinking.reasoning || "") + " | Forced plugin: " + forced.app + "." + (forced.action || forced.tool);
+      thinking.confidence = Math.max(thinking.confidence || 0, 0.92);
+    }
+  }
+  // If user asks about an app but not connected, nudge reauth instead of fake "I cannot access"
+  if (thinking.action === "general_chat" && typeof reauthPayload === "function") {
+    const lower = String(message || "").toLowerCase();
+    const appHints = ["discord", "spotify", "slack", "notion", "github", "twitter", "figma", "canva", "dropbox", "asana", "linear", "twitch", "linkedin"];
+    const asked = appHints.find(a => lower.includes(a));
+    const hasApp = (thinking.connected_tools || []).some(t => t.app === asked);
+    if (asked && !hasApp) {
+      const re = reauthPayload(asked, auth.userId);
+      const msg = `Is app ke liye pehle connect karo: ${re.reauth_url}\n\nAuthorize ke baad same sawaal dubara poochho — main live data nikaalunga.`;
+      await addMessage(env2, ip, auth.userId, sessionId, message, msg, true);
+      return new Response(JSON.stringify({
+        response: msg,
+        intent: "connect_plugin",
+        reauth_url: re.reauth_url,
+        app: asked,
+        thinking_steps: [{ title: "Plugin not connected", detail: asked, status: "blocked" }, { title: "Ask user to authorize", detail: re.reauth_url, status: "done" }],
+        model: "plugin-gate"
+      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+  }
+
   if (thinking.action === "execute_plugin") {
     const app = thinking.args?.app;
     const pluginAction = thinking.args?.action || thinking.args?.tool;
@@ -8663,15 +8736,15 @@ var worker_default = {
       }
     }
     if (pathname === "/oauth/figma")
-      return await handleFigmaOAuth(env2);
+      return await handleFigmaOAuth(env2, request);
     if (pathname === "/oauth/figma/callback")
       return await handleFigmaOAuthCallback(env2, request);
     if (pathname === "/oauth/discord")
-      return await handleDiscordOAuth(env2);
+      return await handleDiscordOAuth(env2, request);
     if (pathname === "/oauth/discord/callback")
       return await handleDiscordOAuthCallback(env2, request);
     if (pathname === "/oauth/canva")
-      return await handleCanvaOAuth(env2);
+      return await handleCanvaOAuth(env2, request);
     if (pathname === "/oauth/canva/callback")
       return await handleCanvaOAuthCallback(env2, request);
     for (const genProvider of GENERIC_OAUTH_PROVIDERS) {
