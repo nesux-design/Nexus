@@ -464,7 +464,7 @@ var OAUTH_CONFIG = {
     redirectUri: "https://nexus-a1.apikeyakhilka.workers.dev/oauth/spotify/callback",
     authUrl: "https://accounts.spotify.com/authorize",
     tokenUrl: "https://accounts.spotify.com/api/token",
-    scopes: "user-read-email user-read-private playlist-read-private playlist-modify-public"
+    scopes: "user-read-email user-read-private user-read-playback-state user-top-read playlist-read-private playlist-modify-public"
   },
   dropbox: {
     clientId: env.DROPBOX_CLIENT_ID || "ADD_YOUR_DROPBOX_CLIENT_ID",
@@ -8416,10 +8416,15 @@ __name2(handlePluginDisconnect, "handlePluginDisconnect");
 async function executePluginNew(env2, auth, body) {
   console.log(`\u{1F535} executePluginNew: START - User=${auth.userId}`);
   console.log(`\u{1F535} executePluginNew: body = ${JSON.stringify(body)}`);
-  const { app, action, params } = body;
+  const app = body.app;
+  let action = body.pluginAction || body.tool || body.action;
+  if (action === "execute_plugin" || action === "chat") {
+    action = body.pluginAction || body.tool || (body.params && (body.params.action || body.params._action)) || null;
+  }
+  const params = body.params || body.pluginParams || {};
   if (!app || !action) {
     console.log(`\u{1F534} executePluginNew: app or action missing`);
-    return { success: false, error: "app and action are required" };
+    return { success: false, error: "app and action are required (use pluginAction for tool name)" };
   }
   console.log(`\u{1F535} executePluginNew: app=${app}, action=${action}`);
   const isTelegramAuth = app === "telegram" && (action === "init" || action === "verify");
@@ -8543,6 +8548,20 @@ async function executePluginNew(env2, auth, body) {
     console.error(`\u{1F534} executePluginNew ERROR:`, error.message);
     console.error(`\u{1F534} executePluginNew Stack:`, error.stack);
     return { success: false, error: error.message };
+  }
+  if (result && typeof result === "object") {
+    if (result.httpStatus && result.httpStatus >= 400) {
+      return { success: false, error: result.error || ("HTTP " + result.httpStatus), status: result.httpStatus, data: result };
+    }
+    if (result.status && Number(result.status) >= 400) {
+      return { success: false, error: result.error || ("HTTP " + result.status), status: result.status, data: result };
+    }
+    if (result.error && !result.id && !result.items && !result.display_name && !result.email) {
+      return { success: false, error: typeof result.error === "string" ? result.error : (result.error.message || JSON.stringify(result.error)), data: result };
+    }
+  }
+  if (typeof result === "string" && /premium subscription required|not registered|invalid|expired|rate limit/i.test(result)) {
+    return { success: false, error: result, data: result };
   }
   console.log(`\u2705 executePluginNew: SUCCESS - app=${app}, action=${action}`);
   return { success: true, data: result };
