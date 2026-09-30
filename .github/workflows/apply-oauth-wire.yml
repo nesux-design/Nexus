@@ -14,14 +14,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prefer runPluginApi for Spotify and other OAuth apps
+      - name: Spotify error handling + scopes
         run: |
           set -e
-          test -f worker.ts
-          test -f scripts/fix_spotify_runplugin.py
-          python3 scripts/fix_spotify_runplugin.py
-          grep -q 'known plugin APIs first' worker.ts
-          wc -c worker.ts
+          python3 scripts/fix_spotify_errors.py
+          grep -q user-top-read worker.ts
+          grep -q 'pluginAction || body.tool' worker.ts
           echo FIX_OK
 
       - name: Commit and push
@@ -29,7 +27,7 @@ jobs:
           set -e
           git config user.name "nexus-oauth-wire"
           git config user.email "nexus-oauth-wire@users.noreply.github.com"
-          git add worker.ts scripts/fix_spotify_runplugin.py
+          git add worker.ts scripts/fix_spotify_errors.py
           if git diff --cached --quiet; then echo no change; exit 0; fi
-          git commit -m "fix: Spotify/Slack use runPluginApi (no endpoint required for known tools)"
+          git commit -m "fix: Spotify scopes + real API error handling (not fake success)"
           git push origin HEAD:main
