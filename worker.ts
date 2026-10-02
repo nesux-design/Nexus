@@ -890,7 +890,7 @@ async function handleCanvaOAuthCallback(env2, request) {
   }
   let configData = {};
   try {
-    const designsResponse = await fetch("https://api.canva.com/v1/designs?ownership=any&limit=50", {
+    const designsResponse = await fetch("https://api.canva.com/rest/v1/designs?ownership=any&limit=50", {
       headers: { "Authorization": `Bearer ${tokenData.access_token}` }
     });
     if (designsResponse.ok) {
@@ -4327,13 +4327,13 @@ async function canvaFullControl(token, action, params, cachedDesigns) {
   };
   switch (action) {
     case "get_user":
-      return await fetch("https://api.canva.com/v1/users/me", { headers }).then((r) => r.json());
+      return await fetch("https://api.canva.com/rest/v1/users/me", { headers }).then((r) => r.json());
     case "list_folders":
-      return await fetch("https://api.canva.com/v1/folders", { headers }).then((r) => r.json());
+      return await fetch("https://api.canva.com/rest/v1/folders", { headers }).then((r) => r.json());
     case "list_designs":
-      return await fetch("https://api.canva.com/v1/designs?ownership=any&limit=" + (params?.limit || 50), { headers }).then((r) => r.json());
+      return await fetch("https://api.canva.com/rest/v1/designs?ownership=any&limit=" + (params?.limit || 50), { headers }).then((r) => r.json());
     case "create_design":
-      return await fetch("https://api.canva.com/v1/designs", {
+      return await fetch("https://api.canva.com/rest/v1/designs", {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -4347,7 +4347,7 @@ async function canvaFullControl(token, action, params, cachedDesigns) {
       if (!designId) {
         return { error: "No Canva design found. Create one first or specify designId." };
       }
-      return await fetch(`https://api.canva.com/v1/designs/${designId}/exports`, {
+      return await fetch(`https://api.canva.com/rest/v1/designs/${designId}/exports`, {
         method: "POST",
         headers,
         body: JSON.stringify({
