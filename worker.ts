@@ -4006,7 +4006,7 @@ async function analyzeImageWithGLM(imageData, prompt) {
 __name(analyzeImageWithGLM, "analyzeImageWithGLM");
 __name2(analyzeImageWithGLM, "analyzeImageWithGLM");
 async function figmaFullControl(token, fileId, action, params) {
-  const headers = { "X-Figma-Token": token };
+  const headers = { "Authorization": `Bearer ${token}`, "X-Figma-Token": token };
   switch (action) {
     case "get_file":
       return await fetch(`https://api.figma.com/v1/files/${fileId}`, { headers }).then((r) => r.json());
@@ -4402,7 +4402,11 @@ async function executePluginFull(env2, auth, body) {
   try {
     switch (app) {
       case "figma":
-        result = await figmaFullControl(integration.access_token, params.fileId, action, params);
+        if (["get_me", "me", "get_user"].includes(String(action))) {
+          result = await runPluginApi("figma", "get_me", integration.access_token, params || {}, {});
+        } else {
+          result = await figmaFullControl(integration.access_token, params?.fileId, action, params);
+        }
         break;
       case "telegram":
         result = await telegramFullControl(integration.access_token, action, params);
@@ -8484,6 +8488,14 @@ async function executePluginNew(env2, auth, body) {
         }
         break;
       case "figma": {
+        // Profile / me never needs a file ID (Claude-style)
+        if (["get_me", "me", "get_user"].includes(String(action))) {
+          result = await runPluginApi("figma", "get_me", token, params || {}, {});
+          if (result && (result.status === 401 || result.httpStatus === 401)) {
+            return reauthPayload("figma", auth.userId, CONFIG.WORKER_URL);
+          }
+          break;
+        }
         let fileId = params?.fileId;
         if (!fileId && integration?.config?.cachedFileId) {
           fileId = integration.config.cachedFileId;
