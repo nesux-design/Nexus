@@ -1,0 +1,46 @@
+name: Wire MCP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply MCP wire
+        run: |
+          set -e
+          test -f mcp-client.js
+          test -f worker.ts
+          if grep -q 'mcp-client.js' worker.ts; then echo already; exit 0; fi
+          python3 scripts/wire_mcp_a1.py || python3 -c "print('fallback')"
+          # minimal fallback if script missing
+          if ! grep -q 'mcp-client.js' worker.ts; then
+            python3 <<'PY'
+from pathlib import Path
+t = Path('worker.ts').read_text()
+if 'mcp-client.js' in t:
+    raise SystemExit(0)
+old = '} from "./oauth-plugins.js";\nvar __defProp2 = Object.defineProperty;'
+new = '} from "./oauth-plugins.js";\nimport { loadMcpToolsForUser, callMcpTool, listMcpConnectors, mcpToolsToGeminiDeclarations, mcpToolsToOpenAITools, parseMcpFunctionName, buildMcpThinkingSteps, buildMcpAnswerPrompt, mcpFunctionName } from "./mcp-client.js";\nvar __defProp2 = Object.defineProperty;'
+if old not in t: raise SystemExit('anchor missing')
+t = t.replace(old, new, 1)
+Path('worker.ts').write_text(t)
+print('minimal import wired')
+PY
+          fi
+          grep -q 'mcp-client.js' worker.ts
+
+      - name: Commit
+        run: |
+          git config user.name nexus-mcp
+          git config user.email nexus-mcp@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: wire mcp-client into worker.ts"
+          git push origin HEAD:main
