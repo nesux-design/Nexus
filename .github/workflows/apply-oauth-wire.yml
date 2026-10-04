@@ -14,21 +14,203 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Twitch Linear Asana APIs
+      - name: Wire MCP client into worker.ts
         run: |
           set -e
-          python3 scripts/fix_twitch_linear_asana.py
-          grep -q 'api.twitch.tv/helix/users' oauth-plugins.js
-          grep -q 'api.linear.app/graphql' oauth-plugins.js
-          grep -q 'app.asana.com' oauth-plugins.js
-          echo FIX_OK
+          test -f mcp-client.js
+          python3 - <<'PY'
+from pathlib import Path
+import sys
+p = Path("worker.ts")
+t = p.read_text()
+if 'from "./mcp-client.js"' in t:
+    print("Already wired"); sys.exit(0)
+if "NEXUS_INTERNAL_AUTH_SECRET" not in t:
+    t = t.replace(
+        "  NEXUS_MCP_SERVER: Fetcher; // service binding \u2192 nexus-mcp-server worker\n",
+        "  NEXUS_MCP_SERVER: Fetcher; // service binding \u2192 nexus-mcp-server worker\n  NEXUS_INTERNAL_AUTH_SECRET?: string;\n  MCP_SERVER_URL?: string;\n",
+        1,
+    )
+old_imp = '} from "./oauth-plugins.js";\nvar __defProp2 = Object.defineProperty;'
+new_imp = '} from "./oauth-plugins.js";\nimport {\n  loadMcpToolsForUser,\n  callMcpTool,\n  listMcpConnectors,\n  mcpToolsToGeminiDeclarations,\n  mcpToolsToOpenAITools,\n  parseMcpFunctionName,\n  buildMcpThinkingSteps,\n  buildMcpAnswerPrompt,\n  mcpFunctionName\n} from "./mcp-client.js";\nvar __defProp2 = Object.defineProperty;'
+assert old_imp in t, "import anchor missing"
+t = t.replace(old_imp, new_imp, 1)
+t = t.replace(
+    "async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls)",
+    "async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls, mcpDecls)",
+    1,
+)
+t = t.replace(
+    "tools: [{ functionDeclarations: getToolDeclarations().concat(pluginDecls || []) }]",
+    "tools: [{ functionDeclarations: getToolDeclarations().concat(pluginDecls || []).concat(typeof mcpDecls !== \"undefined\" && mcpDecls ? mcpDecls : []) }]",
+    1,
+)
+old_pl = '''      if (String(toolName).startsWith("plugin_") && typeof parsePluginFunctionName === "function") {
+        const parsed = parsePluginFunctionName(toolName);
+        if (parsed) {
+          return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.95, resolvedBy: "gemini", pluginTool: toolName };
+        }
+      }
+      return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.95, resolvedBy: "gemini" };'''
+new_pl = '''      if (String(toolName).startsWith("plugin_") && typeof parsePluginFunctionName === "function") {
+        const parsed = parsePluginFunctionName(toolName);
+        if (parsed) {
+          return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.95, resolvedBy: "gemini", pluginTool: toolName };
+        }
+      }
+      if (String(toolName).startsWith("mcp_")) {
+        let connector = null, tool = null;
+        if (typeof globalThis !== "undefined" && globalThis.__nexusMcpNameMap && globalThis.__nexusMcpNameMap[toolName]) {
+          connector = globalThis.__nexusMcpNameMap[toolName].connector;
+          tool = globalThis.__nexusMcpNameMap[toolName].tool;
+        } else if (typeof parseMcpFunctionName === "function") {
+          const m = parseMcpFunctionName(toolName);
+          if (m) { connector = m.connector; tool = m.tool; }
+        }
+        if (connector && tool) {
+          return { action: "execute_mcp", args: { connector, tool, arguments: args }, reasoning: "Called MCP: " + toolName, confidence: 0.95, resolvedBy: "gemini", mcpTool: toolName };
+        }
+      }
+      return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.95, resolvedBy: "gemini" };'''
+assert old_pl in t
+t = t.replace(old_pl, new_pl, 1)
+old_rti = '''async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools) {
+  const pluginDecls = typeof pluginToolsToGeminiDeclarations === "function" ? pluginToolsToGeminiDeclarations(connected_tools || []) : [];
+  const pluginOpenAI = typeof pluginToolsToOpenAITools === "function" ? pluginToolsToOpenAITools(connected_tools || []) : [];
+  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls);'''
+new_rti = '''async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI) {
+  const pluginDecls = typeof pluginToolsToGeminiDeclarations === "function" ? pluginToolsToGeminiDeclarations(connected_tools || []) : [];
+  const pluginOpenAI = typeof pluginToolsToOpenAITools === "function" ? pluginToolsToOpenAITools(connected_tools || []) : [];
+  const allOpenAI = (pluginOpenAI || []).concat(mcpOpenAI || []);
+  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls, mcpDecls || []);'''
+assert old_rti in t
+t = t.replace(old_rti, new_rti, 1)
+for a,b in [
+ ('pluginOpenAI);\n  if (groqResult)','allOpenAI);\n  if (groqResult)'),
+ ('pluginOpenAI);\n  if (cerebrasResult)','allOpenAI);\n  if (cerebrasResult)'),
+ ('pluginOpenAI);\n  if (openDeepResult)','allOpenAI);\n  if (openDeepResult)'),
+]:
+    t = t.replace(a,b,1)
+old_meta = '''  let connected_tools = [];
+  try {
+    if (userId && typeof getPluginToolsForUser === "function") {
+      connected_tools = await getPluginToolsForUser(env2, userId, listIntegrations);
+    }
+  } catch (e) {
+    console.error("plugin tools load", e && e.message);
+  }
+  const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools);'''
+new_meta = '''  let connected_tools = [];
+  try {
+    if (userId && typeof getPluginToolsForUser === "function") {
+      connected_tools = await getPluginToolsForUser(env2, userId, listIntegrations);
+    }
+  } catch (e) {
+    console.error("plugin tools load", e && e.message);
+  }
+  let mcpDecls = [];
+  let mcpOpenAI = [];
+  let mcpNameMap = {};
+  let mcp_tools = [];
+  try {
+    if (userId && env2 && env2.NEXUS_INTERNAL_AUTH_SECRET && typeof loadMcpToolsForUser === "function") {
+      const mcpPack = await loadMcpToolsForUser(env2, userId, { limit: 5 });
+      mcpDecls = mcpPack.decls || [];
+      mcp_tools = mcpPack.tools || [];
+      mcpNameMap = mcpPack.nameMap || {};
+      mcpOpenAI = typeof mcpToolsToOpenAITools === "function" ? mcpToolsToOpenAITools(mcp_tools) : [];
+      try { globalThis.__nexusMcpNameMap = mcpNameMap; } catch (_) {}
+    }
+  } catch (e) {
+    console.error("mcp tools load", e && e.message);
+  }
+  const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI);'''
+assert old_meta in t
+t = t.replace(old_meta, new_meta, 1)
+old_ret = '''    pluginTool: resolved.pluginTool || null
+  };
+}
+__name(metaThinking2026, "metaThinking2026");'''
+new_ret = '''    pluginTool: resolved.pluginTool || null,
+    mcpTool: resolved.mcpTool || null,
+    mcp_tools: mcp_tools || [],
+    mcpNameMap: mcpNameMap || {}
+  };
+}
+__name(metaThinking2026, "metaThinking2026");'''
+assert old_ret in t
+t = t.replace(old_ret, new_ret, 1)
+marker = "  // FORCE_PLUGIN_FALLBACK: Claude-style"
+mcp_block = '''  // EXECUTE_MCP: real MCP gateway (Claude/Grok style)
+  if (thinking.action === "execute_mcp" && thinking.args && thinking.args.connector && thinking.args.tool) {
+    const connector = String(thinking.args.connector);
+    const tool = String(thinking.args.tool);
+    const toolArgs = thinking.args.arguments || thinking.args.args || {};
+    let mcpResult = { success: false, error: "MCP client unavailable" };
+    try {
+      if (typeof callMcpTool === "function") {
+        mcpResult = await callMcpTool(env2, auth.userId, connector, tool, toolArgs);
+      }
+    } catch (e) {
+      mcpResult = { success: false, error: e && e.message ? e.message : String(e) };
+    }
+    const steps = typeof buildMcpThinkingSteps === "function"
+      ? buildMcpThinkingSteps({ message, connector, tool, result: mcpResult })
+      : thinking.thinking_steps || [];
+    if (mcpResult.oauth_required) {
+      return new Response(JSON.stringify({
+        response: "Is MCP connector ke liye provider authorization chahiye: **" + connector + "**. Official consent page se connect karo.",
+        thinking: typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : thinking.reasoning,
+        thinking_steps: steps,
+        intent: "mcp_oauth_required",
+        mcp: { connector, tool, result: mcpResult },
+        model: "mcp"
+      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    let natural = "";
+    try {
+      if (mcpResult.success && mcpResult.data) {
+        const d = mcpResult.data;
+        if (typeof d === "object") {
+          const textBits = [];
+          if (d.content && Array.isArray(d.content)) {
+            for (const c of d.content) {
+              if (c && c.type === "text" && c.text) textBits.push(c.text);
+            }
+          }
+          natural = textBits.length ? textBits.join("\n") : JSON.stringify(d).slice(0, 4000);
+        } else natural = String(d).slice(0, 4000);
+      } else if (mcpResult.error) {
+        natural = "MCP call fail: " + mcpResult.error;
+      }
+    } catch (e) {
+      natural = mcpResult.error || "MCP error";
+    }
+    return new Response(JSON.stringify({
+      response: natural,
+      thinking: typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : thinking.reasoning,
+      thinking_steps: steps,
+      intent: "execute_mcp",
+      mcp: { connector, tool, result: mcpResult },
+      model: "mcp+llm"
+    }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+
+'''
+assert marker in t
+if "EXECUTE_MCP: real MCP gateway" not in t:
+    t = t.replace(marker, mcp_block + marker, 1)
+p.write_text(t)
+assert 'from "./mcp-client.js"' in t
+print("WIRE OK", len(t))
+PY
 
       - name: Commit and push
         run: |
           set -e
-          git config user.name "nexus-oauth-wire"
-          git config user.email "nexus-oauth-wire@users.noreply.github.com"
-          git add oauth-plugins.js scripts/fix_twitch_linear_asana.py
+          git config user.name "nexus-mcp-wire"
+          git config user.email "nexus-mcp-wire@users.noreply.github.com"
+          git add worker.ts mcp-client.js
           if git diff --cached --quiet; then echo no change; exit 0; fi
-          git commit -m "fix: Twitch get_user + Linear issues + Asana tasks in runPluginApi"
+          git commit -m "feat: A1 chat uses nexus-mcp-server (execute_mcp + tools/list)"
           git push origin HEAD:main
