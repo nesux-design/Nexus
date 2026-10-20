@@ -1370,14 +1370,18 @@ var SupabaseClient = /* @__PURE__ */ __name2(class {
     return await fetch(this.url + "/auth/v1/" + endpoint, options);
   }
   async verifyJWT(token) {
+    // Validate the access token with Supabase Auth itself. Decoding JWT claims
+    // without checking the signature must never be treated as authentication.
     try {
-      const parts = token.split(".");
-      if (parts.length !== 3)
+      if (typeof token !== "string" || !token || token.length > 16384)
         return null;
-      const payload = JSON.parse(atob(parts[1]));
-      if (payload.exp && Date.now() >= payload.exp * 1e3)
+      const response = await this.auth("GET", "user", null, token);
+      if (!response.ok)
         return null;
-      return { userId: payload.sub, email: payload.email, role: payload.role, expiresAt: payload.exp ? new Date(payload.exp * 1e3) : null };
+      const user = await response.json();
+      if (!user || typeof user.id !== "string" || !user.id)
+        return null;
+      return { userId: user.id, email: user.email || null, role: user.role || null, expiresAt: null };
     } catch (e) {
       return null;
     }
@@ -1514,14 +1518,14 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async saveChatToSupabase(conversationId, messages, title) {
     try {
       if (conversationId) {
-        const existingResponse = await this.supabase.rest("GET", "conversations?id=eq." + conversationId + "&select=id", null, null);
+        const existingResponse = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=id", null, null);
         if (existingResponse.ok) {
           const existingConvs = await existingResponse.json();
           if (existingConvs.length > 0) {
             const updates = { messages: JSON.stringify(messages), updated_at: (/* @__PURE__ */ new Date()).toISOString() };
             if (title)
               updates.title = title;
-            await this.supabase.updateConversation(conversationId, updates);
+            await this.supabase.rest("PATCH", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId), updates, null);
             return conversationId;
           }
         }
@@ -1536,7 +1540,7 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async getChatFromSupabase(conversationId) {
     try {
       if (conversationId) {
-        const res = await this.supabase.rest("GET", "conversations?id=eq." + conversationId + "&select=*", null, null);
+        const res = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=*", null, null);
         if (res.ok) {
           const convs = await res.json();
           if (convs.length > 0) {
@@ -1560,7 +1564,8 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   }
   async deleteChatFromSupabase(conversationId) {
     try {
-      return await this.supabase.deleteConversation(conversationId);
+      const res = await this.supabase.rest("DELETE", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId), null, null);
+      return res.ok;
     } catch (e) {
       return false;
     }
@@ -8710,6 +8715,10 @@ var worker_default = {
       return new Response("Canvas not found", { status: 404 });
     }
     if (path === "/api/test/plugins") {
+      const testAuth = await enhancedAuthenticate(request, env2);
+      if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
       const actionType = url.searchParams.get("actionType") || "read";
@@ -8743,6 +8752,10 @@ var worker_default = {
       }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
     if (pathname === "/testplugin") {
+      const testAuth = await enhancedAuthenticate(request, env2);
+      if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       const result = await executePluginNew(env2, {
         userId: "test_user",
         authenticated: true
@@ -8815,6 +8828,9 @@ var worker_default = {
       return await handleAction(env2, request, auth, action, body, params, ctx);
     }
     if (pathname === "/api/plugin" && request.method === "POST") {
+      if (!auth.authenticated) {
+        return new Response(JSON.stringify({ success: false, error: "Authentication required" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       const body = await request.json();
       const result = await executePluginFull(env2, auth, body);
       return new Response(JSON.stringify(result), {
@@ -8844,6 +8860,9 @@ var worker_default = {
     if (path === "/oauth/disconnect") {
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
+      if (!auth.authenticated || !targetUserId || (auth.userId !== targetUserId && !isAdmin(auth.userId))) {
+        return new Response(JSON.stringify({ success: false, error: "Not authorized" }), { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       return await handlePluginDisconnect(env2, targetProvider, targetUserId);
     }
     if (path === "/premium/status")
