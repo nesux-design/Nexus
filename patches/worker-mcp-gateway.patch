@@ -1,6 +1,8 @@
 --- a/worker.ts
 +++ b/worker.ts
-@@ -21,6 +21,8 @@
+@@ -19,10 +19,12 @@
+   NEXUS_MCP_SERVER: Fetcher; // service binding → nexus-mcp-server worker
+   ENVIRONMENT?: string;      // set via [env.production] vars in wrangler.toml
  
    // Core secrets
    ENCRYPTION_KEY: string;
@@ -9,7 +11,11 @@
  
    // Direct model provider API keys (comma-separated lists)
    GEMINI_API_KEYS?: string;
-@@ -121,6 +123,22 @@
+   GROQ_API_KEYS?: string;
+   CEREBRAS_API_KEYS?: string;
+@@ -119,10 +121,26 @@
+   pluginToolsToGeminiDeclarations,
+   pluginToolsToOpenAITools,
    parsePluginFunctionName,
    buildPluginAnswerPrompt
  } from "./oauth-plugins.js";
@@ -32,7 +38,11 @@
  var __defProp2 = Object.defineProperty;
  var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
  var __defProp22 = Object.defineProperty;
-@@ -6923,6 +6941,13 @@
+ var __name22 = /* @__PURE__ */ __name2((target, value) => __defProp22(target, "name", { value, configurable: true }), "__name");
+ function getCurrentDate() {
+@@ -6924,10 +6942,16 @@
+         const parsed = parsePluginFunctionName(toolName);
+         if (parsed) {
            return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.95, resolvedBy: "gemini", pluginTool: toolName };
          }
        }
@@ -45,7 +55,11 @@
        return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.95, resolvedBy: "gemini" };
      }
      return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.9, resolvedBy: "gemini" };
-@@ -6971,6 +6996,13 @@
+   } catch (e) {
+     return null;
+@@ -6972,71 +6996,96 @@
+         const parsed = parsePluginFunctionName(toolName);
+         if (parsed) {
            return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.9, resolvedBy: providerName, pluginTool: toolName };
          }
        }
@@ -58,3 +72,34 @@
        return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.9, resolvedBy: providerName };
      }
      return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.85, resolvedBy: providerName };
+   } catch (e) {
+     return null;
+   }
+ }
+ __name(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
+ __name2(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
+ __name22(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
+-async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools) {
++async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI) {
+   const pluginDecls = typeof pluginToolsToGeminiDeclarations === "function" ? pluginToolsToGeminiDeclarations(connected_tools || []) : [];
+   const pluginOpenAI = typeof pluginToolsToOpenAITools === "function" ? pluginToolsToOpenAITools(connected_tools || []) : [];
+-  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls);
++  const allGemini = (pluginDecls || []).concat(mcpDecls || []);
++  const allOpenAI = (pluginOpenAI || []).concat(mcpOpenAI || []);
++  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, allGemini);
+   if (geminiResult)
+     return geminiResult;
+-  const groqResult = await resolveViaOpenAICompatible("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
++  const groqResult = await resolveViaOpenAICompatible("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
+   if (groqResult)
+     return groqResult;
+-  const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
++  const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
+   if (cerebrasResult)
+     return cerebrasResult;
+-  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
++  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
+   if (openDeepResult)
+     return openDeepResult;
+   return { action: "general_chat", args: {}, reasoning: "All tool resolvers unavailable", confidence: 0.3, resolvedBy: "none" };
+ }
