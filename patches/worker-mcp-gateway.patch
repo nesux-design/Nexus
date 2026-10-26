@@ -1,1 +1,60 @@
-See artifacts - will replace
+--- a/worker.ts
++++ b/worker.ts
+@@ -21,6 +21,8 @@
+ 
+   // Core secrets
+   ENCRYPTION_KEY: string;
++  NEXUS_INTERNAL_AUTH_SECRET?: string;
++  MCP_SERVER_URL?: string;
+ 
+   // Direct model provider API keys (comma-separated lists)
+   GEMINI_API_KEYS?: string;
+@@ -121,6 +123,22 @@
+   parsePluginFunctionName,
+   buildPluginAnswerPrompt
+ } from "./oauth-plugins.js";
++import {
++  loadMcpToolsForUser,
++  listMcpConnectors,
++  callMcpTool,
++  getMcpOAuthStart,
++  listMcpTools,
++  mcpToolsToGeminiDeclarations,
++  mcpToolsToOpenAITools,
++  parseMcpFunctionName,
++  matchMcpFromMessage,
++  formatMcpForThinking,
++  buildMcpThinkingSteps,
++  buildMcpAnswerPrompt,
++  listMcpGatewayCatalog,
++  MCP_GATEWAY_CONNECTORS
++} from "./mcp-client.js";
+ var __defProp2 = Object.defineProperty;
+ var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
+ var __defProp22 = Object.defineProperty;
+@@ -6923,6 +6941,13 @@
+           return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.95, resolvedBy: "gemini", pluginTool: toolName };
+         }
+       }
++      if (String(toolName).startsWith("mcp_") && typeof parseMcpFunctionName === "function") {
++        const parsed = parseMcpFunctionName(toolName);
++        if (parsed) {
++          return { action: "execute_mcp", args: { connector: parsed.connector, tool: parsed.tool, ...args }, reasoning: "Called MCP: " + toolName, confidence: 0.95, resolvedBy: "gemini", mcpTool: toolName };
++        }
++      }
+       return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.95, resolvedBy: "gemini" };
+     }
+     return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.9, resolvedBy: "gemini" };
+@@ -6971,6 +6996,13 @@
+           return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.9, resolvedBy: providerName, pluginTool: toolName };
+         }
+       }
++      if (String(toolName).startsWith("mcp_") && typeof parseMcpFunctionName === "function") {
++        const parsed = parseMcpFunctionName(toolName);
++        if (parsed) {
++          return { action: "execute_mcp", args: { connector: parsed.connector, tool: parsed.tool, ...args }, reasoning: "Called MCP: " + toolName, confidence: 0.9, resolvedBy: providerName, mcpTool: toolName };
++        }
++      }
+       return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.9, resolvedBy: providerName };
+     }
+     return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.85, resolvedBy: providerName };
