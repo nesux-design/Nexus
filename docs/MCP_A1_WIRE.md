@@ -1,22 +1,26 @@
-# MCP gateway on Nexus A1
+# MCP on Nexus A1 (phone / Termux)
 
-## On GitHub now
-- `mcp-client.js`
-- `mcp-gateway-connectors.js` (35 connectors)
-- `patches/worker-mcp-api-only.patch` — adds API actions to worker.ts
+Live worker still needs this patch once, then deploy.
 
-## Deploy (required — live worker is still old)
+## Termux (3 steps)
 
 ```bash
-cd Nexus
+cd ~/Nexus   # or your clone path
 git pull origin main
-patch -p1 < patches/worker-mcp-api-only.patch
-# secret must match nexus-mcp-server
-npx wrangler secret put NEXUS_INTERNAL_AUTH_SECRET --name nexus-a1
+bash scripts/termux-apply-mcp.sh
+```
+
+Or manual:
+
+```bash
+cd ~/Nexus && git pull
+curl -sL https://raw.githubusercontent.com/nesux-design/Nexus/main/patches/worker-mcp-full.patch.b64 | tr -d '\n' | base64 -d > /tmp/w.patch
+patch -p1 < /tmp/w.patch
+npx wrangler secret put NEXUS_INTERNAL_AUTH_SECRET   # same as MCP server
 npx wrangler deploy
 ```
 
-## Test after deploy
+## Test
 
 ```bash
 curl -s -X POST "https://nexus-a1.apikeyakhilka.workers.dev/api" \
@@ -26,6 +30,4 @@ curl -s -X POST "https://nexus-a1.apikeyakhilka.workers.dev/api" \
   -d '{"action":"mcp_connectors"}'
 ```
 
-Other actions: `mcp_oauth_start`, `mcp_tools_list`, `mcp_tools_call`.
-
-Chat auto-routing of MCP tools needs the larger chat wire (next); API path works after this patch + deploy.
+Need files: `mcp-client.js`, `mcp-gateway-connectors.js` (already on main).
