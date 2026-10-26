@@ -21,6 +21,8 @@ interface Env {
 
   // Core secrets
   ENCRYPTION_KEY: string;
+  NEXUS_INTERNAL_AUTH_SECRET?: string;
+  MCP_SERVER_URL?: string;
 
   // Direct model provider API keys (comma-separated lists)
   GEMINI_API_KEYS?: string;
@@ -121,6 +123,22 @@ import {
   parsePluginFunctionName,
   buildPluginAnswerPrompt
 } from "./oauth-plugins.js";
+import {
+  loadMcpToolsForUser,
+  listMcpConnectors,
+  callMcpTool,
+  getMcpOAuthStart,
+  listMcpTools,
+  mcpToolsToGeminiDeclarations,
+  mcpToolsToOpenAITools,
+  parseMcpFunctionName,
+  matchMcpFromMessage,
+  formatMcpForThinking,
+  buildMcpThinkingSteps,
+  buildMcpAnswerPrompt,
+  listMcpGatewayCatalog,
+  MCP_GATEWAY_CONNECTORS
+} from "./mcp-client.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
 var __defProp22 = Object.defineProperty;
@@ -6926,6 +6944,12 @@ async function resolveViaGemini(userMessage, context, hasLastImage, lastImageDes
           return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.95, resolvedBy: "gemini", pluginTool: toolName };
         }
       }
+      if (String(toolName).startsWith("mcp_") && typeof parseMcpFunctionName === "function") {
+        const parsed = parseMcpFunctionName(toolName);
+        if (parsed) {
+          return { action: "execute_mcp", args: { connector: parsed.connector, tool: parsed.tool, ...args }, reasoning: "Called MCP: " + toolName, confidence: 0.95, resolvedBy: "gemini", mcpTool: toolName };
+        }
+      }
       return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.95, resolvedBy: "gemini" };
     }
     return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.9, resolvedBy: "gemini" };
@@ -6974,6 +6998,12 @@ async function resolveViaOpenAICompatible(providerName, endpoint, model, userMes
           return { action: "execute_plugin", args: { app: parsed.app, action: parsed.action, ...args }, reasoning: "Called plugin: " + toolName, confidence: 0.9, resolvedBy: providerName, pluginTool: toolName };
         }
       }
+      if (String(toolName).startsWith("mcp_") && typeof parseMcpFunctionName === "function") {
+        const parsed = parseMcpFunctionName(toolName);
+        if (parsed) {
+          return { action: "execute_mcp", args: { connector: parsed.connector, tool: parsed.tool, ...args }, reasoning: "Called MCP: " + toolName, confidence: 0.9, resolvedBy: providerName, mcpTool: toolName };
+        }
+      }
       return { action: TOOL_NAME_TO_ACTION[toolName] || "general_chat", args, reasoning: "Called tool: " + toolName, confidence: 0.9, resolvedBy: providerName };
     }
     return { action: "general_chat", args: {}, reasoning: "No tool needed", confidence: 0.85, resolvedBy: providerName };
@@ -6984,19 +7014,21 @@ async function resolveViaOpenAICompatible(providerName, endpoint, model, userMes
 __name(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
 __name2(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
 __name22(resolveViaOpenAICompatible, "resolveViaOpenAICompatible");
-async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools) {
+async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI) {
   const pluginDecls = typeof pluginToolsToGeminiDeclarations === "function" ? pluginToolsToGeminiDeclarations(connected_tools || []) : [];
   const pluginOpenAI = typeof pluginToolsToOpenAITools === "function" ? pluginToolsToOpenAITools(connected_tools || []) : [];
-  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, pluginDecls);
+  const allGemini = (pluginDecls || []).concat(mcpDecls || []);
+  const allOpenAI = (pluginOpenAI || []).concat(mcpOpenAI || []);
+  const geminiResult = await resolveViaGemini(userMessage, context, hasLastImage, lastImageDesc, allGemini);
   if (geminiResult)
     return geminiResult;
-  const groqResult = await resolveViaOpenAICompatible("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
+  const groqResult = await resolveViaOpenAICompatible("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
   if (groqResult)
     return groqResult;
-  const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
+  const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
   if (cerebrasResult)
     return cerebrasResult;
-  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc, pluginOpenAI);
+  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
   if (openDeepResult)
     return openDeepResult;
   return { action: "general_chat", args: {}, reasoning: "All tool resolvers unavailable", confidence: 0.3, resolvedBy: "none" };
@@ -7016,7 +7048,17 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
   } catch (e) {
     console.error("plugin tools load", e && e.message);
   }
-  const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools);
+  let mcpPack = { tools: [], decls: [], notes: [], oauthNeeded: [] };
+  try {
+    if (userId && typeof loadMcpToolsForUser === "function") {
+      mcpPack = await loadMcpToolsForUser(env2, userId, { limit: 10 });
+    }
+  } catch (e) {
+    console.error("mcp tools load", e && e.message);
+  }
+  const mcpDecls = mcpPack.decls || [];
+  const mcpOpenAI = typeof mcpToolsToOpenAITools === "function" ? mcpToolsToOpenAITools(mcpPack.tools || []) : [];
+  const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI);
   const pluginBlock = typeof formatPluginsForThinking === "function" ? formatPluginsForThinking(connected_tools) : "";
   const reasoning = [resolved.reasoning, pluginBlock].filter(Boolean).join("\n\n");
   let matched = null;
@@ -7033,8 +7075,10 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
     confidence: resolved.confidence,
     args: resolved.args,
     connected_tools,
+    mcp_tools: (typeof mcpPack !== "undefined" && mcpPack.tools) ? mcpPack.tools : [],
     thinking_steps,
-    pluginTool: resolved.pluginTool || null
+    pluginTool: resolved.pluginTool || null,
+    mcpTool: resolved.mcpTool || null
   };
 }
 __name(metaThinking2026, "metaThinking2026");
@@ -7415,7 +7459,30 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
       });
     }
-    case "integration_status": {
+        case "mcp_connectors": {
+      let remote = [];
+      try { remote = await listMcpConnectors(env2, auth.userId); } catch (_) {}
+      const catalog = typeof listMcpGatewayCatalog === "function" ? listMcpGatewayCatalog() : Object.values(MCP_GATEWAY_CONNECTORS || {});
+      return new Response(JSON.stringify({ success: true, connectors: remote && remote.length ? remote : catalog, catalog }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_oauth_start": {
+      const connector = body.connector || body.app || body.provider;
+      const started = await getMcpOAuthStart(env2, auth.userId, connector);
+      return new Response(JSON.stringify(started), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: started && started.success ? 200 : 400 });
+    }
+    case "mcp_tools_list": {
+      const connector = body.connector || body.app;
+      const res = await listMcpTools(env2, auth.userId, connector);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_tools_call": {
+      const connector = body.connector || body.app;
+      const name = body.name || body.tool;
+      const args = body.arguments || body.params || {};
+      const res = await callMcpTool(env2, auth.userId, connector, name, args);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+case "integration_status": {
       console.log(`\u{1F535} integration_status: User ${auth.userId}`);
       const integrations = await listIntegrations(env2, auth.userId);
       let mcp_tools = [];
@@ -7641,6 +7708,15 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       thinking.confidence = Math.max(thinking.confidence || 0, 0.92);
     }
   }
+  if (thinking.action === "general_chat" && thinking.mcp_tools && thinking.mcp_tools.length && typeof matchMcpFromMessage === "function") {
+    const forcedMcp = matchMcpFromMessage(message, thinking.mcp_tools);
+    if (forcedMcp) {
+      thinking.action = "execute_mcp";
+      thinking.args = { connector: forcedMcp.connector, tool: forcedMcp.name };
+      thinking.reasoning = (thinking.reasoning || "") + " | Forced MCP: " + forcedMcp.connector + "." + forcedMcp.name;
+      thinking.confidence = Math.max(thinking.confidence || 0, 0.9);
+    }
+  }
   // If user asks about an app but not connected, nudge reauth instead of fake "I cannot access"
   if (thinking.action === "general_chat" && typeof reauthPayload === "function") {
     const lower = String(message || "").toLowerCase();
@@ -7684,6 +7760,43 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     if (!natural) natural = typeof rawData === "string" ? rawData : JSON.stringify(rawData, null, 2).substring(0, 4000);
     await addMessage(env2, ip, auth.userId, sessionId, message, natural, true);
     return new Response(JSON.stringify({ response: natural, thinking: typeof thinkingStepsToText === "function" ? thinkingStepsToText(steps) : thinking.reasoning, thinking_steps: steps, intent: "execute_plugin", plugin: { app, tool: pluginAction, result: pluginResult }, connected_tools: thinking.connected_tools, model: "plugin+llm" }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+  if (thinking.action === "execute_mcp") {
+    const connector = thinking.args?.connector || thinking.args?.app;
+    const toolName = thinking.args?.tool || thinking.args?.action || thinking.args?.name;
+    const toolArgs = { ...(thinking.args || {}) };
+    delete toolArgs.connector; delete toolArgs.app; delete toolArgs.tool; delete toolArgs.action; delete toolArgs.name;
+    let mcpResult = { success: false, error: "callMcpTool unavailable" };
+    try {
+      mcpResult = await callMcpTool(env2, auth.userId, connector, toolName, toolArgs);
+    } catch (e) {
+      mcpResult = { success: false, error: e && e.message ? e.message : String(e) };
+    }
+    const steps = typeof buildMcpThinkingSteps === "function"
+      ? buildMcpThinkingSteps({ message, connector, tool: toolName, result: mcpResult })
+      : (thinking.thinking_steps || []);
+    if (mcpResult && mcpResult.oauth_required) {
+      let authStart = null;
+      try { authStart = await getMcpOAuthStart(env2, auth.userId, connector); } catch (_) {}
+      const msg = "Please authorize MCP **" + connector + "** first." + (authStart && authStart.authorize_url ? ("\n" + authStart.authorize_url) : "");
+      await addMessage(env2, ip, auth.userId, sessionId, message, msg, true);
+      return new Response(JSON.stringify({ response: msg, thinking_steps: steps, intent: "execute_mcp", mcp: { connector, tool: toolName, result: mcpResult }, model: "mcp" }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    if (!mcpResult || mcpResult.success === false) {
+      const msg = "MCP **" + connector + "." + toolName + "** failed: " + (mcpResult && mcpResult.error ? mcpResult.error : "unknown");
+      await addMessage(env2, ip, auth.userId, sessionId, message, msg, true);
+      return new Response(JSON.stringify({ response: msg, thinking_steps: steps, intent: "execute_mcp", mcp: { connector, tool: toolName, result: mcpResult }, model: "mcp" }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    const rawData = mcpResult.data !== undefined ? mcpResult.data : mcpResult;
+    const answerPrompt = typeof buildMcpAnswerPrompt === "function" ? buildMcpAnswerPrompt(message, connector, toolName, rawData) : ("User: " + message + "\nMCP: " + JSON.stringify(rawData).substring(0, 8000));
+    let natural = null;
+    try {
+      const aiOut = await callGeminiOrGroq(answerPrompt, [{ role: "user", content: answerPrompt }], { temperature: 0.4, maxTokens: 1200, useWebSearch: false });
+      natural = aiOut?.result || aiOut?.text || null;
+    } catch (e) { console.error("mcp answer synth", e && e.message); }
+    if (!natural) natural = typeof rawData === "string" ? rawData : JSON.stringify(rawData, null, 2).substring(0, 4000);
+    await addMessage(env2, ip, auth.userId, sessionId, message, natural, true);
+    return new Response(JSON.stringify({ response: natural, thinking_steps: steps, intent: "execute_mcp", mcp: { connector, tool: toolName, result: mcpResult }, model: "mcp+llm" }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   }
   if (thinking.action === "real_photo") {
     const searchResult = await unifiedRealPhotoSearch(thinking.args?.photo_query || thinking.prompt || message);
