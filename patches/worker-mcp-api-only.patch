@@ -1,0 +1,64 @@
+--- a/worker.ts
++++ b/worker.ts
+@@ -21,6 +21,8 @@
+ 
+   // Core secrets
+   ENCRYPTION_KEY: string;
++  NEXUS_INTERNAL_AUTH_SECRET?: string;
++  MCP_SERVER_URL?: string;
+ 
+   // Direct model provider API keys (comma-separated lists)
+   GEMINI_API_KEYS?: string;
+@@ -121,6 +123,22 @@
+   parsePluginFunctionName,
+   buildPluginAnswerPrompt
+ } from "./oauth-plugins.js";
++import {
++  loadMcpToolsForUser,
++  listMcpConnectors,
++  callMcpTool,
++  getMcpOAuthStart,
++  listMcpTools,
++  mcpToolsToGeminiDeclarations,
++  mcpToolsToOpenAITools,
++  parseMcpFunctionName,
++  matchMcpFromMessage,
++  formatMcpForThinking,
++  buildMcpThinkingSteps,
++  buildMcpAnswerPrompt,
++  listMcpGatewayCatalog,
++  MCP_GATEWAY_CONNECTORS
++} from "./mcp-client.js";
+ var __defProp2 = Object.defineProperty;
+ var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
+ var __defProp22 = Object.defineProperty;
+@@ -7415,6 +7433,29 @@
+         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
+       });
+     }
++    case "mcp_connectors": {
++      let remote = [];
++      try { remote = await listMcpConnectors(env2, auth.userId); } catch (_) {}
++      const catalog = typeof listMcpGatewayCatalog === "function" ? listMcpGatewayCatalog() : Object.values(MCP_GATEWAY_CONNECTORS || {});
++      return new Response(JSON.stringify({ success: true, connectors: remote && remote.length ? remote : catalog, catalog }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
++    }
++    case "mcp_oauth_start": {
++      const connector = body.connector || body.app || body.provider;
++      const started = await getMcpOAuthStart(env2, auth.userId, connector);
++      return new Response(JSON.stringify(started), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: started && started.success ? 200 : 400 });
++    }
++    case "mcp_tools_list": {
++      const connector = body.connector || body.app;
++      const res = await listMcpTools(env2, auth.userId, connector);
++      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
++    }
++    case "mcp_tools_call": {
++      const connector = body.connector || body.app;
++      const name = body.name || body.tool;
++      const args = body.arguments || body.params || {};
++      const res = await callMcpTool(env2, auth.userId, connector, name, args);
++      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
++    }
+     case "integration_status": {
+       console.log(`\u{1F535} integration_status: User ${auth.userId}`);
+       const integrations = await listIntegrations(env2, auth.userId);
