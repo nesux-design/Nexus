@@ -1,0 +1,106 @@
+name: Restore mcp-client.js
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/restore-mcp-client.yml'
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore mcp-client.js from known-good commit
+        run: |
+          git show 6b8c00eb7f1749a9e9dbfe3d37c96ab90239b63e:mcp-client.js > mcp-client.js
+          # ensure location header on gateway fetch
+          if ! grep -q 'location: res.headers.get' mcp-client.js; then
+            sed -i 's/wwwAuthenticate: res.headers.get("www-authenticate") || null/wwwAuthenticate: res.headers.get("www-authenticate") || null,\n    location: res.headers.get("location") || null/' mcp-client.js || true
+          fi
+          # append custom MCP helpers if missing
+          if ! grep -q 'listCustomMcps' mcp-client.js; then
+            cat >> mcp-client.js << 'EOF'
+
+export async function listCustomMcps(env, userId) {
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "GET" });
+  if (!r.ok) return { success: false, error: r.error || "list failed", connectors: [], status: r.status };
+  return { success: true, connectors: r.data?.connectors || [], data: r.data };
+}
+
+export async function addCustomMcp(env, userId, { url, mcpUrl, name, headers } = {}) {
+  const u = String(mcpUrl || url || "").trim();
+  if (!u) return { success: false, error: "url required" };
+  const body = { url: u, name: name || "Custom MCP" };
+  if (headers) body.headers = headers;
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "POST", body });
+  if (!r.ok) return { success: false, error: r.error || r.data?.message || "add failed", data: r.data };
+  return { success: true, ...(r.data || {}) };
+}
+
+export async function setCustomMcpCredentials(env, userId, connectorId, credentials = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const auth = credentials.auth && typeof credentials.auth === "object" ? { ...credentials.auth } : {};
+  if (credentials.apiKey != null) auth.apiKey = credentials.apiKey;
+  if (credentials.bearer != null) auth.bearer = credentials.bearer;
+  if (credentials.token != null && auth.bearer == null) auth.bearer = credentials.token;
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}/credentials`, { method: "POST", body: { auth } });
+  if (!r.ok) return { success: false, error: r.error || "credentials failed", status: r.status, data: r.data };
+  return { success: true, connectorId: id, hasCredentials: true, ...(r.data || {}) };
+}
+
+export async function deleteCustomMcp(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) return { success: false, error: r.error || "delete failed", status: r.status, data: r.data };
+  return { success: true, deleted: id, ...(r.data || {}) };
+}
+
+export async function getCustomMcpOAuthStart(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/oauth/custom/${encodeURIComponent(id)}/start`, { method: "GET" });
+  const loc = r.location || r.data?.authorize_url || r.data?.url || r.data?.location;
+  if (loc) return { success: true, connector: id, authorize_url: loc, status: r.status };
+  return { success: false, connector: id, error: r.error || r.data?.message || "oauth_start_failed", status: r.status, data: r.data };
+}
+
+export async function listCustomMcpTools(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required", tools: [] };
+  return listMcpTools(env, userId, `custom/${id}`);
+}
+
+export async function callCustomMcpTool(env, userId, connectorId, name, args = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  return callMcpTool(env, userId, `custom/${id}`, name, args);
+}
+
+export async function getMcpOAuthStart(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connector required" };
+  const r = await mcpGatewayFetch(env, userId, `/oauth/${encodeURIComponent(id)}/start`, { method: "GET" });
+  const loc = r.location || r.data?.authorize_url || r.data?.url;
+  if (loc) return { success: true, connector: id, authorize_url: loc, status: r.status };
+  return { success: false, connector: id, error: r.error || "oauth_start_failed", status: r.status, data: r.data };
+}
+EOF
+          fi
+          wc -c mcp-client.js
+          head -3 mcp-client.js
+      - name: Commit restore
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add mcp-client.js
+          if git diff --staged --quiet; then
+            echo "No change"
+          else
+            git commit -m "fix: restore mcp-client.js (known-good + custom MCP helpers)"
+            git push origin HEAD
+          fi
