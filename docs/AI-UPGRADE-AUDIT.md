@@ -31,7 +31,7 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 
 ## Dependency remediation
 
-- The repository's dependency audit identified high-severity packages, including a critical `proxy-addr` advisory and vulnerable Wrangler v3 dependency trees. The isolated branch will explicitly test the documented Wrangler v4 migration, then apply non-forced audit fixes. Dependency changes are committed only if static regression checks and the Wrangler dry run pass. No `npm audit fix --force` is used.
+- The repository's dependency audit identified high-severity packages, including a critical `proxy-addr` advisory and vulnerable Wrangler v3 dependency trees. The isolated branch explicitly tests the documented Wrangler v4 migration, then applies non-forced audit fixes. Dependency changes are committed only if static regression checks and the Wrangler dry run pass. No `npm audit fix --force` is used. The next CI run is the controlled migration attempt.
 
 ## Known limits / remaining review
 
