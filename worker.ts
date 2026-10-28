@@ -1824,7 +1824,10 @@ __name(getUser, "getUser");
 __name2(getUser, "getUser");
 __name22(getUser, "getUser");
 async function getEncryptionKey(env2) {
-  const keyMaterial = env2.ENCRYPTION_KEY || "nexus-fallback-key-PLEASE-set-ENCRYPTION_KEY-secret-in-env";
+  const keyMaterial = typeof env2?.ENCRYPTION_KEY === "string" ? env2.ENCRYPTION_KEY.trim() : "";
+  if (keyMaterial.length < 32) {
+    throw new Error("ENCRYPTION_KEY must be configured as a high-entropy Cloudflare secret (at least 32 characters)");
+  }
   const encoder = new TextEncoder();
   const keyData = await crypto.subtle.digest("SHA-256", encoder.encode(keyMaterial));
   return await crypto.subtle.importKey("raw", keyData, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
