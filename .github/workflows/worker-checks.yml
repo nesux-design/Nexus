@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -25,6 +25,9 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Apply semver-safe dependency fixes on explicit request
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[dependency-fix]')
+        run: npm audit fix
       - name: Static regression checks
         run: npm test
       - name: Production dependency audit
@@ -32,6 +35,15 @@ jobs:
         continue-on-error: true
       - name: Cloudflare Worker dry run
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+      - name: Commit verified dependency updates
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[dependency-fix]')
+        run: |
+          git config user.name "nexus-security-bot"
+          git config user.email "nexus-security-bot@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then echo "No dependency changes"; exit 0; fi
+          git commit -m "security: apply semver-safe npm audit fixes"
+          git push origin HEAD
       - name: TypeScript debt report
         run: npm run typecheck
         continue-on-error: true
