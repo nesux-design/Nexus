@@ -22,6 +22,7 @@ interface Env {
   // Core secrets
   ENCRYPTION_KEY: string;
   NEXUS_INTERNAL_AUTH_SECRET?: string;
+  NEXUS_LEGACY_API_KEY?: string;
   MCP_SERVER_URL?: string;
 
   // Direct model provider API keys (comma-separated lists)
@@ -168,7 +169,7 @@ var TODAY = CURRENT_DATE.full;
 var CONFIG = {
   APP_NAME: "NEXUS",
   CREATOR: "Akhil Jaiswal",
-  API_KEY: "akhil-123",
+  API_KEY: env.NEXUS_LEGACY_API_KEY || "",
   UPI_ID: "jaiswalanushi8@oksbi",
   AMAZON_AFFILIATE_ID: "akhilgpt-21",
   ADMIN_IDS: ["admin", "akhil", "jaiswalanushi08", "8681361916"],
@@ -644,7 +645,7 @@ __name(generateOAuthUrl, "generateOAuthUrl");
 __name2(generateOAuthUrl, "generateOAuthUrl");
 async function exchangeFigmaCode(code) {
   const config = OAUTH_CONFIG.figma;
-  console.log(`\u{1F527} exchangeFigmaCode: code=${code}`);
+  console.log("exchangeFigmaCode: exchanging authorization code");
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5e3);
@@ -759,8 +760,9 @@ async function handleGenericOAuthInit(env2, request, provider) {
   const config = OAUTH_CONFIG[provider];
   if (!config)
     return jsonResponse({ error: `Unknown provider: ${provider}` }, 400);
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider, userId }), { expirationTtl: 300 });
   let extra = "";
@@ -821,8 +823,9 @@ async function handleGenericOAuthCallback(env2, request, provider) {
 __name(handleGenericOAuthCallback, "handleGenericOAuthCallback");
 __name2(handleGenericOAuthCallback, "handleGenericOAuthCallback");
 async function handleFigmaOAuth(env2, request) {
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "figma", userId }), { expirationTtl: 300 });
   return redirect(generateOAuthUrl("figma", state));
@@ -835,8 +838,9 @@ async function handleFigmaOAuthCallback(env2, request) {
 __name(handleFigmaOAuthCallback, "handleFigmaOAuthCallback");
 __name2(handleFigmaOAuthCallback, "handleFigmaOAuthCallback");
 async function handleDiscordOAuth(env2, request) {
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "discord", userId }), { expirationTtl: 300 });
   return redirect(generateOAuthUrl("discord", state));
@@ -849,8 +853,9 @@ async function handleDiscordOAuthCallback(env2, request) {
 __name(handleDiscordOAuthCallback, "handleDiscordOAuthCallback");
 __name2(handleDiscordOAuthCallback, "handleDiscordOAuthCallback");
 async function handleCanvaOAuth(env2, request) {
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "canva", userId }), { expirationTtl: 300 });
   const codeVerifier = generateCodeVerifier();
@@ -1095,7 +1100,7 @@ async function telegramGetMe(sessionString) {
 __name(telegramGetMe, "telegramGetMe");
 __name2(telegramGetMe, "telegramGetMe");
 function generatenewId() {
-  return Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 10);
+  return crypto.randomUUID();
 }
 __name(generatenewId, "generatenewId");
 __name2(generatenewId, "generatenewId");
@@ -1244,7 +1249,7 @@ var FEATURE_CAPABILITIES = [
   "Can suggest 3 relevant follow-up questions after answering, when asked to",
   "Can explicitly save facts the user asks it to remember (\"remember that...\"), and will recall them reliably in every future conversation, not just guess from similarity search",
   "When search sources are used, cites them with numbered markers like [1], [2] matching a source list, so claims are traceable",
-  "Can show its step-by-step reasoning/thinking process when explicitly requested, not just the final answer"
+  "Can provide concise reasoning summaries, assumptions, calculations, and verification steps without exposing private chain-of-thought"
   // \u{1F447} Naya feature add karte waqt bas ek line yahan add karo \u2014 MASTER_PROMPT khud-ba-khud isse
   // uठा lega, kahin aur dhundhne/edit karne ki zaroorat nahi.
 ];
@@ -1276,6 +1281,13 @@ When asked about your name "NEXUS":
 - You match the user's tone and language naturally
 - You remember context and reference previous exchanges
 - You admit when you don't know something rather than pretending
+- Lead with the direct answer; keep simple answers concise and expand only when the task benefits from detail.
+- Choose the response format that best fits the task: prose, steps, comparison table, code, checklist, or research summary. Do not force tables or excessive bullets into every answer.
+- For multi-step tasks, report completed actions and verified results accurately; never claim a tool ran or a change succeeded unless it actually did.
+- When using web research, cite claims near the relevant text and include a compact source list with meaningful titles and URLs. Do not invent citations.
+- Ask a follow-up question only when a missing detail materially affects correctness. Otherwise state reasonable assumptions and proceed.
+- Do not reveal private chain-of-thought. Offer a concise rationale, key assumptions, checks performed, and a useful summary instead.
+- Suggest relevant next questions only when they naturally help the user continue; avoid repetitive or generic follow-ups.
 
 **AUTOMATICALLY CREATE AN IMAGE when the user's core intent is:**
 - To SEE something visual: "sunset", "dragon", "red car", "Taj Mahal"
@@ -1532,14 +1544,14 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async saveChatToSupabase(conversationId, messages, title) {
     try {
       if (conversationId) {
-        const existingResponse = await this.supabase.rest("GET", "conversations?id=eq." + conversationId + "&select=id", null, null);
+        const existingResponse = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=id", null, null);
         if (existingResponse.ok) {
           const existingConvs = await existingResponse.json();
           if (existingConvs.length > 0) {
             const updates = { messages: JSON.stringify(messages), updated_at: (/* @__PURE__ */ new Date()).toISOString() };
             if (title)
               updates.title = title;
-            await this.supabase.updateConversation(conversationId, updates);
+            await this.supabase.rest("PATCH", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId), updates, null);
             return conversationId;
           }
         }
@@ -1554,7 +1566,7 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async getChatFromSupabase(conversationId) {
     try {
       if (conversationId) {
-        const res = await this.supabase.rest("GET", "conversations?id=eq." + conversationId + "&select=*", null, null);
+        const res = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=*" , null, null);
         if (res.ok) {
           const convs = await res.json();
           if (convs.length > 0) {
@@ -1578,7 +1590,8 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   }
   async deleteChatFromSupabase(conversationId) {
     try {
-      return await this.supabase.deleteConversation(conversationId);
+      const res = await this.supabase.rest("DELETE", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId), null, null);
+      return res.ok;
     } catch (e) {
       return false;
     }
@@ -2302,7 +2315,7 @@ async function buildContext(env2, ip, userId, sessionId, query, modelProvider) {
   const est = /* @__PURE__ */ __name22((t) => Math.ceil((t || "").length / 4), "est");
   if (session.messages?.length > 0) {
     ctx += "## \u{1F4DD} Previous Conversation\n\n";
-    const sorted = [...session.messages].sort((a, b) => (b.importance || 0.5) - (a.importance || 0.5));
+    const sorted = smartContextWindow(session.messages, Math.min(MAX_MSGS, 80));
     let added = 0;
     for (let i = 0; i < sorted.length && added < MAX_MSGS; i++) {
       const m = sorted[i];
@@ -5119,11 +5132,32 @@ ${response}` }], false);
     response = response.replace(artifact.fullMatch, `\u{1F4C4} **${artifact.title}** \u2014 shown in the artifact panel`);
   }
   let relatedQuestions = [];
-  if (config.includeRelatedQuestions) {
-    relatedQuestions = await generateRelatedQuestions(env2, query, response);
+  const trimmedQuery = String(query || "").trim();
+  const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedQuery);
+  if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
+    try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
+  const answerText = String(response || "");
+  const hasCodeBlock = /\x60{3}/.test(answerText);
+  const presentation = {
+    version: 1,
+    kind: artifact?.type || (webSources.length ? "research" : hasCodeBlock ? "code" : /\n\s*\|.+\|\s*\n/.test(answerText) ? "table" : /(^|\n)\s*(\d+[.)]|[-*])\s+/.test(answerText) ? "structured" : "prose"),
+    features: {
+      hasCode: hasCodeBlock,
+      hasTable: /\n\s*\|.+\|\s*\n/.test(answerText),
+      hasLinks: /https?:\/\//i.test(answerText),
+      hasNumberedSteps: /(^|\n)\s*\d+[.)]\s+/.test(answerText),
+      hasCitations: /\[\d+\]/.test(answerText),
+      hasSources: webSources.length > 0,
+      hasArtifact: !!artifact,
+      hasRelatedQuestions: relatedQuestions.length > 0
+    }
+  };
+  const seenSourceUrls = new Set();
+  const normalizedSources = (webSources || []).filter(s => s && typeof s.url === "string" && /^https?:\/\//i.test(s.url) && !seenSourceUrls.has(s.url) && seenSourceUrls.add(s.url)).map(s => ({ title: String(s.title || s.url).slice(0, 240), url: s.url }));
   return {
     response,
+    presentation,
     ...config.responseFormat === "json" ? { json: jsonParsed, jsonValid } : {},
     model: aiResult.model,
     intent: reasoning.plan?.approach || "general_chat",
@@ -5131,7 +5165,7 @@ ${response}` }], false);
     latency,
     isPremium,
     searchPerformed: reasoning.plan?.needsSearch || false,
-    sources: webSources,
+    sources: normalizedSources,
     thinking,
     artifact,
     relatedQuestions,
@@ -8823,6 +8857,10 @@ var worker_default = {
       return new Response("Canvas not found", { status: 404 });
     }
     if (path === "/api/test/plugins") {
+      const testAuth = await enhancedAuthenticate(request, env2);
+      if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
       const actionType = url.searchParams.get("actionType") || "read";
@@ -8856,6 +8894,10 @@ var worker_default = {
       }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
     if (pathname === "/testplugin") {
+      const testAuth = await enhancedAuthenticate(request, env2);
+      if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       const result = await executePluginNew(env2, {
         userId: "test_user",
         authenticated: true
@@ -8957,6 +8999,9 @@ var worker_default = {
     if (path === "/oauth/disconnect") {
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
+      if (!auth.authenticated || !targetUserId || (targetUserId !== auth.userId && !isAdmin(auth.userId))) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       return await handlePluginDisconnect(env2, targetProvider, targetUserId);
     }
     if (path === "/premium/status")
@@ -9001,7 +9046,6 @@ var worker_default = {
     CURRENT_DAY = CURRENT_DATE.day;
     TODAY = CURRENT_DATE.full;
     await checkReminders(env2);
-    await sendDailyStats2026(env2);
     await sendDailyStats2026(env2);
     console.log("\xF0\u0178\u201C\u0160 NEXUS Monster Daily Report sent at " + (/* @__PURE__ */ new Date()).toISOString());
   }
