@@ -35,10 +35,18 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 
 - The repository's dependency audit identified high-severity packages, including a critical `proxy-addr` advisory and vulnerable Wrangler v3 dependency trees. The isolated branch explicitly tests the documented Wrangler v4 migration, then applies non-forced audit fixes. Dependency changes are committed only if static regression checks and the Wrangler dry run pass. No `npm audit fix --force` is used. The next CI run is the controlled migration attempt.
 
+## Verification status
+
+- Static regression tests pass.
+- Local esbuild bundle check passes.
+- Wrangler v4 configuration check passes with Cloudflare credentials explicitly unset; the stale `TimeMcpServer` tombstone was removed while preserving migration tag `v2`.
+- The first successful Wrangler v3 dry-run checks created preview versions in the Cloudflare account. The active production deployment remained on the 26 October deployment. Subsequent validation was switched to local/no-credentials mode, and no production deployment was invoked.
+- TypeScript compilation still reports a substantial legacy backlog (roughly 276 diagnostics in the latest report, mostly untyped API response objects and function argument mismatches). CI records this as informational rather than claiming a clean typecheck.
+
 ## Known limits / remaining review
 
 - This is not an exact clone of proprietary ChatGPT or Claude internals.
 - The current repository does not include the full chat frontend; visual components need a frontend source repository.
 - Static tests and CI checks are not a substitute for live end-to-end tests against Supabase, KV, D1, Vectorize, OAuth providers, and MCP services.
 - The Telegram test endpoint still uses a hardcoded test phone number; it is admin-protected, but live execution should wait until a dedicated test account is configured.
-- Secret encryption fallback behavior and all OAuth callback/state flows require additional review before deployment.
+- Legacy plaintext secret compatibility in `decryptSecret` and all OAuth callback/state flows require additional review before deployment.
