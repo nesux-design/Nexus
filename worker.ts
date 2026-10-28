@@ -1400,13 +1400,12 @@ var SupabaseClient = /* @__PURE__ */ __name2(class {
   }
   async verifyJWT(token) {
     try {
-      const parts = token.split(".");
-      if (parts.length !== 3)
-        return null;
-      const payload = JSON.parse(atob(parts[1]));
-      if (payload.exp && Date.now() >= payload.exp * 1e3)
-        return null;
-      return { userId: payload.sub, email: payload.email, role: payload.role, expiresAt: payload.exp ? new Date(payload.exp * 1e3) : null };
+      if (typeof token !== "string" || token.length < 20 || token.length > 8192) return null;
+      const res = await this.auth("GET", "user", null, token);
+      if (!res.ok) return null;
+      const user = await res.json();
+      if (!user || typeof user.id !== "string" || !user.id) return null;
+      return { userId: user.id, email: user.email || null, role: user.role || null, expiresAt: null };
     } catch (e) {
       return null;
     }
@@ -1846,7 +1845,7 @@ async function encryptSecret(env2, plaintext) {
     return "enc:" + btoa(binary);
   } catch (e) {
     console.error("encryptSecret error:", e.message);
-    return plaintext;
+    throw new Error("Secret encryption failed; refusing to store plaintext");
   }
 }
 __name(encryptSecret, "encryptSecret");
