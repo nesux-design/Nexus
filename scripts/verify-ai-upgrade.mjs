@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const worker = readFileSync(new URL("../worker.ts", import.meta.url), "utf8");
+const mcpClient = readFileSync(new URL("../mcp-client.js", import.meta.url), "utf8");
 
 function section(startMarker, endMarker) {
   const start = worker.indexOf(startMarker);
@@ -44,5 +45,10 @@ const answerEngine = section("async function quantumResponse(", "__name(quantumR
 assert.match(answerEngine, /presentation,\s*\.\.\.config\.responseFormat/, "The response should expose backward-compatible presentation metadata.");
 assert.match(answerEngine, /sources:\s*normalizedSources/, "Sources should be normalized before returning.");
 assert.match(answerEngine, /config\.includeRelatedQuestions !== false/, "Relevant follow-up questions should be available by default.");
+
+for (const exportedName of ["getMcpOAuthStart", "matchMcpFromMessage", "formatMcpForThinking"]) {
+  assert.match(mcpClient, new RegExp("export (?:async )?function " + exportedName + "\\b"), "Missing MCP client export: " + exportedName);
+}
+assert.match(mcpClient, /export \{ MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog \}/, "MCP catalog exports must be present.");
 
 console.log("NEXUS upgrade static checks passed.");
