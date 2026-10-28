@@ -169,7 +169,6 @@ var TODAY = CURRENT_DATE.full;
 var CONFIG = {
   APP_NAME: "NEXUS",
   CREATOR: "Akhil Jaiswal",
-  API_KEY: env.NEXUS_LEGACY_API_KEY || "",
   UPI_ID: "jaiswalanushi8@oksbi",
   AMAZON_AFFILIATE_ID: "akhilgpt-21",
   ADMIN_IDS: ["admin", "akhil", "jaiswalanushi08", "8681361916"],
@@ -1510,6 +1509,7 @@ async function enhancedAuthenticate(request, env2) {
   const authHeader = request.headers.get("Authorization");
   const apiKey = request.headers.get("X-API-Key");
   const legacyUserId = request.headers.get("X-User-ID");
+  const legacyKeyMatches = !!env2.NEXUS_LEGACY_API_KEY && apiKey === env2.NEXUS_LEGACY_API_KEY;
   const supabaseKey = SUPABASE_CONFIG.SERVICE_ROLE_KEY || SUPABASE_CONFIG.ANON_KEY;
   const supabase = new SupabaseClient(SUPABASE_CONFIG.URL, supabaseKey);
   if (authHeader && authHeader.startsWith("Bearer eyJ")) {
@@ -1521,11 +1521,11 @@ async function enhancedAuthenticate(request, env2) {
       return { authenticated: true, method: "supabase_jwt", userId: decoded.userId, email: decoded.email || (userData ? userData.email : null), userData, isPremium: premiumStatus.isPremium, plan: premiumStatus.plan, premiumExpiry: premiumStatus.premiumExpiry, supabase, token };
     }
   }
-  if (apiKey === CONFIG.API_KEY && legacyUserId && legacyUserId !== "anonymous") {
+  if (legacyKeyMatches && legacyUserId && legacyUserId !== "anonymous") {
     const premiumStatus = await supabase.getPremiumStatus(legacyUserId);
     return { authenticated: true, method: "legacy_api_key", userId: legacyUserId, email: null, userData: null, isPremium: premiumStatus.isPremium || isAdmin(legacyUserId), plan: premiumStatus.plan || "free", premiumExpiry: premiumStatus.premiumExpiry || null, supabase, token: null };
   }
-  if (apiKey === CONFIG.API_KEY) {
+  if (legacyKeyMatches) {
     return { authenticated: false, method: "anonymous", userId: "anonymous", email: null, userData: null, isPremium: false, plan: "free", premiumExpiry: null, supabase, token: null };
   }
   return { authenticated: false, method: "unauthorized", userId: null, email: null, userData: null, isPremium: false, plan: "free", premiumExpiry: null, supabase, token: null };
