@@ -111,7 +111,8 @@ var __defProp = Object.defineProperty;
 var __name = (target: any, value: string) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-import { env } from "cloudflare:workers";
+import { env as cloudflareEnv } from "cloudflare:workers";
+const env = cloudflareEnv as unknown as Env;
 import {
   getPluginToolsForUser,
   formatPluginsForThinking,
