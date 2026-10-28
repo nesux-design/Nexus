@@ -19,6 +19,9 @@ assert.match(worker, /async verifyJWT\(token\)[\s\S]*?this\.auth\("GET", "user",
 assert.match(worker, /Secret encryption failed; refusing to store plaintext/, "Secret encryption errors must not fall back to plaintext.");
 assert.match(worker, /ENCRYPTION_KEY must be configured as a high-entropy Cloudflare secret/, "Encryption must fail closed when the secret is missing.");
 assert.doesNotMatch(worker, /nexus-fallback-key-PLEASE-set-ENCRYPTION_KEY-secret-in-env/, "Do not ship a known fallback encryption key.");
+const wrangler = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+assert.match(wrangler, /tag = "v2"/, "Keep the already-deployed Durable Object migration tag.");
+assert.doesNotMatch(wrangler, /deleted_classes\s*=\s*\["TimeMcpServer"\]/, "Do not re-apply a stale tombstone for a class absent from the migration history.");
 
 const pluginTest = section('if (path === "/api/test/plugins")', 'if (pathname === "/test-execute")');
 assert.match(pluginTest, /enhancedAuthenticate\(request,\s*env2\)/);
