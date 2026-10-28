@@ -25,6 +25,10 @@
 
 The legacy key must be configured as a Cloudflare Worker secret only if legacy server-to-server callers still need it. A secret embedded in browser/frontend code is not secret; the frontend should use a verified Supabase access token for user identity. Do not deploy this branch until the frontend's authentication headers and OAuth-start requests are confirmed compatible.
 
+## Dependency remediation
+
+- The repository's production dependency audit identified advisories, including a critical `proxy-addr` issue and high-severity packages. A semver-compatible `npm audit fix` will be attempted only on the isolated upgrade branch; the workflow will commit dependency changes only after static regression checks and the Wrangler dry run pass. No `--force` upgrade is used.
+
 ## Known limits / remaining review
 
 - This is not an exact clone of proprietary ChatGPT or Claude internals.
