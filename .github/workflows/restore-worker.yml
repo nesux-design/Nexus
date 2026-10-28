@@ -2,12 +2,20 @@ name: Restore worker.ts
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_branch_write:
+        description: "Type yes only after reviewing the changes; this workflow writes to the selected non-main branch."
+        required: true
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
 
 permissions:
   contents: write
 
 jobs:
   restore:
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.confirm_branch_write == 'yes'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,4 +53,4 @@ jobs:
             exit 0
           fi
           git commit -m "fix: restore worker.ts from 03c752a (known good)"
-          git push origin HEAD:main
+          git push origin HEAD
