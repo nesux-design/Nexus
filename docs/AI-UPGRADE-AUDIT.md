@@ -23,6 +23,10 @@
 
 ## Important migration note
 
+- `NEXUS_LEGACY_API_KEY` is now read from the Worker environment rather than source code. It is for trusted server-to-server compatibility only; a browser frontend must use a verified Supabase access token instead of shipping a shared key.
+- `ENCRYPTION_KEY` must be configured as a high-entropy Cloudflare secret of at least 32 characters. The known fallback encryption key was removed and encryption errors no longer fall back to plaintext. Existing integration tokens encrypted with the old fallback may need to be reconnected if no valid secret was configured previously. Do not deploy until this secret and the frontend authentication migration are verified.
+- The Wrangler dry-run now bundles successfully after restoring the missing MCP client exports. The repository still has a large legacy TypeScript error backlog; the CI typecheck step is currently informational and is not a passing typecheck claim.
+
 The legacy key must be configured as a Cloudflare Worker secret only if legacy server-to-server callers still need it. A secret embedded in browser/frontend code is not secret; the frontend should use a verified Supabase access token for user identity. Do not deploy this branch until the frontend's authentication headers and OAuth-start requests are confirmed compatible.
 
 ## Dependency remediation
