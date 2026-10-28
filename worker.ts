@@ -23,6 +23,8 @@ interface Env {
   ENCRYPTION_KEY: string;
   NEXUS_INTERNAL_AUTH_SECRET?: string;
   NEXUS_LEGACY_API_KEY?: string;
+  NEXUS_TEST_EMAIL_TO?: string;
+  NEXUS_TEST_TELEGRAM_PHONE?: string;
   MCP_SERVER_URL?: string;
 
   // Direct model provider API keys (comma-separated lists)
@@ -8872,8 +8874,15 @@ var worker_default = {
           headers: { "Content-Type": "application/json", ...CORS_HEADERS }
         });
       }
+      if (!["google", "github"].includes(targetProvider)) {
+        return new Response(JSON.stringify({ error: "Unsupported provider" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
+      const testRecipient = url.searchParams.get("to") || env2.NEXUS_TEST_EMAIL_TO || "";
+      if (targetProvider === "google" && /send|compose|draft/i.test(actionType) && !testRecipient) {
+        return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_EMAIL_TO or pass a test recipient" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       let payload = {
-        to: url.searchParams.get("to") || "jaiswalanushi8@gmail.com",
+        to: testRecipient,
         subject: url.searchParams.get("subject") || "NEXUS AI Monster Test",
         body: url.searchParams.get("body") || "Bhai! NEXUS AI ka Full Action Plugin ekdam perfect kaam kar raha hai. Live from Cloudflare Worker!",
         repoName: url.searchParams.get("repoName") || "nexus-auto-repo"
@@ -8900,13 +8909,17 @@ var worker_default = {
       if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
         return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
       }
+      const testPhone = env2.NEXUS_TEST_TELEGRAM_PHONE;
+      if (!testPhone) {
+        return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_TELEGRAM_PHONE before running the Telegram integration test" }), { status: 503, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       const result = await executePluginNew(env2, {
         userId: "test_user",
         authenticated: true
       }, {
         app: "telegram",
         action: "init",
-        params: { phone: "+919839524592" }
+        params: { phone: testPhone }
       });
       return new Response(JSON.stringify(result), {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
