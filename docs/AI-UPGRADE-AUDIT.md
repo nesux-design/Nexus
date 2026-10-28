@@ -31,6 +31,8 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 
 ## Dependency remediation
 
+- The active Cloudflare deployment reports Durable Object migration tag `v2`. The repository had a `v2` deletion tombstone for `TimeMcpServer` even though no preceding migration created that class; Wrangler v4 rejects this inconsistent history. The branch removes only that stale tombstone and preserves the already-deployed `v2` tag. This configuration has not been deployed; validate with local/no-credentials checks first.
+
 - The repository's dependency audit identified high-severity packages, including a critical `proxy-addr` advisory and vulnerable Wrangler v3 dependency trees. The isolated branch explicitly tests the documented Wrangler v4 migration, then applies non-forced audit fixes. Dependency changes are committed only if static regression checks and the Wrangler dry run pass. No `npm audit fix --force` is used. The next CI run is the controlled migration attempt.
 
 ## Known limits / remaining review
