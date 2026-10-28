@@ -39,8 +39,8 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 
 - Static regression tests pass.
 - Local esbuild bundle check passes.
-- Wrangler v4 configuration check passes with Cloudflare credentials explicitly unset; the stale `TimeMcpServer` tombstone was removed while preserving migration tag `v2`.
-- The first successful Wrangler v3 dry-run checks created preview versions in the Cloudflare account. The active production deployment remained on the 26 October deployment. Subsequent validation was switched to local/no-credentials mode, and no production deployment was invoked.
+- A Wrangler v4 config check passed after removing the stale `TimeMcpServer` tombstone while preserving migration tag `v2`. However, the Wrangler CLI dry-run still uploaded preview versions despite credential environment variables being unset, so that command has been removed from CI. Future CI uses local esbuild only.
+- Cloudflare shows preview versions uploaded during the earlier CLI validation window; the active production deployment remains on the 26 October deployment. No production deployment was invoked.
 - TypeScript compilation still reports a substantial legacy backlog (roughly 276 diagnostics in the latest report, mostly untyped API response objects and function argument mismatches). CI records this as informational rather than claiming a clean typecheck.
 
 ## Known limits / remaining review
