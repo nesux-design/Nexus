@@ -27,7 +27,9 @@ jobs:
         run: npm ci
       - name: Apply semver-safe dependency fixes on explicit request
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[dependency-fix]')
-        run: npm audit fix
+        run: |
+          npm install --save-dev wrangler@^4
+          npm audit fix
       - name: Static regression checks
         run: npm test
       - name: Production dependency audit
