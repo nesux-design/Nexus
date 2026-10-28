@@ -13,7 +13,7 @@ function section(startMarker, endMarker) {
 }
 
 assert.doesNotMatch(worker, /API_KEY:\s*["\x27]akhil-123["\x27]/, "The committed legacy API key must not return.");
-assert.match(worker, /API_KEY:\s*env\.NEXUS_LEGACY_API_KEY\s*\|\|\s*""/, "Legacy API compatibility must be explicitly configured as a Worker secret.");
+assert.match(worker, /legacyKeyMatches = !!env2\.NEXUS_LEGACY_API_KEY && apiKey === env2\.NEXUS_LEGACY_API_KEY/, "Legacy API compatibility must be explicitly configured as a Worker secret.");
 assert.match(worker, /function generatenewId\(\)\s*\{\s*return crypto\.randomUUID\(\);/, "OAuth state IDs should use a cryptographically secure UUID.");
 
 const pluginTest = section('if (path === "/api/test/plugins")', 'if (pathname === "/test-execute")');
