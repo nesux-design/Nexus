@@ -1,0 +1,46 @@
+name: One-time semver-safe dependency fix
+
+on:
+  push:
+    branches:
+      - nexus-dependency-fix-2026-10
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message != 'security: apply semver-safe npm audit fixes'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout isolated dependency branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install current lockfile
+        run: npm ci
+      - name: Apply semver-compatible security fixes only
+        run: npm audit fix
+      - name: Static regression checks
+        run: npm test
+      - name: Cloudflare Worker dry run
+        run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
+      - name: Report remaining dependency advisories
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
+      - name: Commit dependency lockfile if safe checks pass
+        run: |
+          git config user.name "nexus-security-bot"
+          git config user.email "nexus-security-bot@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No dependency changes were needed."
+            exit 0
+          fi
+          git commit -m "security: apply semver-safe npm audit fixes"
+          git push origin HEAD
