@@ -6,7 +6,9 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "node scripts/verify-ai-upgrade.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "author": "Akhil Jaiswal",
   "license": "MIT",
