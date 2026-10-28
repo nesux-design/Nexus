@@ -23,10 +23,14 @@ assert.doesNotMatch(worker, /nexus-fallback-key-PLEASE-set-ENCRYPTION_KEY-secret
 const pluginTest = section('if (path === "/api/test/plugins")', 'if (pathname === "/test-execute")');
 assert.match(pluginTest, /enhancedAuthenticate\(request,\s*env2\)/);
 assert.match(pluginTest, /!testAuth\.authenticated\s*\|\|\s*!isAdmin\(testAuth\.userId\)/, "Plugin test route must be admin-only.");
+assert.doesNotMatch(pluginTest, /jaiswalanushi8@gmail\.com/, "Plugin tests must not default to a hardcoded personal email.");
+assert.match(pluginTest, /NEXUS_TEST_EMAIL_TO/, "Email side effects must use an explicit test destination.");
 
 const telegramTest = section('if (pathname === "/testplugin")', 'if (path === "/slack/events"');
 assert.match(telegramTest, /enhancedAuthenticate\(request,\s*env2\)/);
 assert.match(telegramTest, /!testAuth\.authenticated\s*\|\|\s*!isAdmin\(testAuth\.userId\)/, "Telegram test route must be admin-only.");
+assert.doesNotMatch(telegramTest, /\+919839524592/, "Telegram test must not contain a hardcoded phone number.");
+assert.match(telegramTest, /NEXUS_TEST_TELEGRAM_PHONE/, "Telegram test must use an explicit test phone secret.");
 
 for (const name of ["handleFigmaOAuth", "handleDiscordOAuth", "handleCanvaOAuth", "handleGenericOAuthInit"]) {
   const start = worker.indexOf("async function " + name + "(");
