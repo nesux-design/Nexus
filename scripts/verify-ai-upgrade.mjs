@@ -15,6 +15,8 @@ function section(startMarker, endMarker) {
 assert.doesNotMatch(worker, /API_KEY:\s*["\x27]akhil-123["\x27]/, "The committed legacy API key must not return.");
 assert.match(worker, /legacyKeyMatches = !!env2\.NEXUS_LEGACY_API_KEY && apiKey === env2\.NEXUS_LEGACY_API_KEY/, "Legacy API compatibility must be explicitly configured as a Worker secret.");
 assert.match(worker, /function generatenewId\(\)\s*\{\s*return crypto\.randomUUID\(\);/, "OAuth state IDs should use a cryptographically secure UUID.");
+assert.match(worker, /async verifyJWT\(token\)[\s\S]*?this\.auth\("GET", "user", null, token\)/, "JWT verification must be delegated to Supabase Auth, not token decoding.");
+assert.match(worker, /Secret encryption failed; refusing to store plaintext/, "Secret encryption errors must not fall back to plaintext.");
 
 const pluginTest = section('if (path === "/api/test/plugins")', 'if (pathname === "/test-execute")');
 assert.match(pluginTest, /enhancedAuthenticate\(request,\s*env2\)/);
