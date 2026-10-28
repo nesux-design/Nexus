@@ -1566,7 +1566,7 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async getChatFromSupabase(conversationId) {
     try {
       if (conversationId) {
-        const res = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=*" , null, null);
+        const res = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=*", null, null);
         if (res.ok) {
           const convs = await res.json();
           if (convs.length > 0) {
