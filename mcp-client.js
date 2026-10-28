@@ -5,6 +5,8 @@
  */
 const DEFAULT_MCP_URL = "https://nexus-mcp-server.apikeyakhilka.workers.dev";
 
+import { MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog, mcpOAuthStartPath } from "./mcp-gateway-connectors.js";
+
 function encoder() {
   return new TextEncoder();
 }
@@ -278,3 +280,62 @@ ${String(payload).substring(0, 12000)}
 
 Answer clearly in the user's language. No raw JSON dump. If OAuth is required, tell them to connect that MCP provider.`;
 }
+
+export async function getMcpOAuthStart(env, userId, connectorId) {
+  const connector = String(connectorId || "").trim();
+  if (!connector) return { success: false, error: "connector required" };
+  if (!Object.prototype.hasOwnProperty.call(MCP_GATEWAY_CONNECTORS, connector)) {
+    return { success: false, error: "Unknown MCP connector: " + connector };
+  }
+  const result = await mcpGatewayFetch(env, userId, mcpOAuthStartPath(connector), { method: "GET" });
+  const location = result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location;
+  if (location && /^https?:\/\//i.test(location)) {
+    return { success: true, connector, authorize_url: location, status: result.status };
+  }
+  return {
+    success: false,
+    connector,
+    error: result.error || result.data?.message || "oauth_start_failed",
+    status: result.status,
+    data: result.data
+  };
+}
+
+export function matchMcpFromMessage(message, mcpTools = []) {
+  const query = String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!query || !Array.isArray(mcpTools) || !mcpTools.length) return null;
+  const hasActionVerb = /\b(list|show|get|fetch|search|find|create|update|delete|send|read|write|open|deploy|check|retrieve|add|remove|edit|comment|run|execute|view|look up)\b/i.test(query);
+  const candidates = [];
+  for (const tool of mcpTools) {
+    if (!tool || !tool.connector || !tool.name) continue;
+    const connector = String(tool.connector);
+    const name = String(tool.name);
+    const normalizedName = name.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const normalizedConnector = connector.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const description = String(tool.description || "").toLowerCase();
+    let score = 0;
+    if (normalizedName && (" " + query + " ").includes(" " + normalizedName + " ")) score += 6;
+    if (name.toLowerCase().replace(/[_-]+/g, "") && query.replace(/\s+/g, "").includes(name.toLowerCase().replace(/[_-]+/g, ""))) score += 5;
+    if (normalizedConnector && (" " + query + " ").includes(" " + normalizedConnector + " ")) score += 2;
+    const terms = description.split(/[^a-z0-9]+/).filter(w => w.length >= 4 && !["with", "from", "that", "this", "your", "into", "user", "list", "data"].includes(w));
+    for (const term of terms) if ((" " + query + " ").includes(" " + term + " ")) score += 0.2;
+    if (score >= 5 || (score >= 2.5 && hasActionVerb)) candidates.push({ connector, name, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  if (!candidates.length) return null;
+  if (candidates.length > 1 && candidates[0].score === candidates[1].score) return null;
+  return { connector: candidates[0].connector, name: candidates[0].name };
+}
+
+export function formatMcpForThinking(mcpTools = []) {
+  if (!Array.isArray(mcpTools) || !mcpTools.length) return "";
+  return mcpTools.slice(0, 30).map(tool => {
+    const connector = String(tool?.connector || "unknown");
+    const name = String(tool?.name || "tool");
+    const description = String(tool?.description || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    return "- " + connector + "." + name + (description ? ": " + description : "");
+  }).join("\n");
+}
+
+export { MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog };
+
