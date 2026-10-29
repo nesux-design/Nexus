@@ -48,7 +48,7 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - This is not an exact clone of proprietary ChatGPT or Claude internals.
 - The current repository does not include the full chat frontend; visual components need a frontend source repository.
 - Static tests and CI checks are not a substitute for live end-to-end tests against Supabase, KV, D1, Vectorize, OAuth providers, and MCP services.
-- The Telegram test endpoint still uses a hardcoded test phone number; it is admin-protected, but live execution should wait until a dedicated test account is configured.
+- The Telegram test endpoint reads `NEXUS_TEST_TELEGRAM_PHONE` from a Worker secret and is admin-protected. However, it still passes a shared `test_user` identity into plugin execution; change that to the authenticated admin or a dedicated isolated test identity before live testing.
 - Legacy plaintext secret compatibility in `decryptSecret` and all OAuth callback/state flows require additional review before deployment.
 
 ## Additional security review fixes (29 October 2026)
@@ -102,7 +102,7 @@ The implementation is being evaluated against the product goals, not merely whet
 
 ### Remaining gates before calling the upgrade complete
 
-- Reconcile every user-facing capability claim in the master prompt with what is actually implemented. The prompt still contains an absolute-accuracy instruction; remove that contradiction in code before claiming this goal is satisfied.
+- Reconcile every user-facing capability claim in the master prompt with what is actually implemented. The prior audit identified an absolute-accuracy instruction; re-check the current branch source and remove any such contradiction before claiming this goal is satisfied.
 - Verify test-route destination configuration against the actual route implementation; the audit notes and regression assertions must agree with the code.
 - Review the entire diff for workflow changes that could write to `main`, secret leakage, OAuth-state edge cases, and migration compatibility.
 - Identify the separate frontend repository/source and verify its auth headers, streaming parser, citation rendering, follow-up handling, and mobile UX before any deployment.
