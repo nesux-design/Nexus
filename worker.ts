@@ -141,7 +141,14 @@ import {
   buildMcpThinkingSteps,
   buildMcpAnswerPrompt,
   listMcpGatewayCatalog,
-  MCP_GATEWAY_CONNECTORS
+  MCP_GATEWAY_CONNECTORS,
+  listCustomMcps,
+  addCustomMcp,
+  deleteCustomMcp,
+  getCustomMcpOAuthStart,
+  listCustomMcpTools,
+  callCustomMcpTool,
+  setCustomMcpCredentials
 } from "./mcp-client.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
@@ -7566,6 +7573,37 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
       const name = body.name || body.tool;
       const args = body.arguments || body.params || {};
       const res = await callMcpTool(env2, auth.userId, connector, name, args);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+
+    case "mcp_custom_list": {
+      const res = await listCustomMcps(env2, auth.userId);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_add": {
+      const res = await addCustomMcp(env2, auth.userId, { url: body.url || body.mcpUrl, name: body.name, headers: body.headers });
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: res && res.success ? 200 : 400 });
+    }
+    case "mcp_custom_delete": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await deleteCustomMcp(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_oauth_start": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await getCustomMcpOAuthStart(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: res && res.success ? 200 : 400 });
+    }
+    case "mcp_custom_tools_list": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await listCustomMcpTools(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_tools_call": {
+      const id = body.connectorId || body.id || body.connector;
+      const name = body.name || body.tool;
+      const args = body.arguments || body.params || {};
+      const res = await callCustomMcpTool(env2, auth.userId, id, name, args);
       return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
 case "integration_status": {
