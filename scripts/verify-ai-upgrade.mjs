@@ -65,7 +65,8 @@ assert.match(worker, /presentation: response\.presentation \|\| null/, "The chat
 assert.match(worker, /sources: response\.sources \|\| \[\]/, "The chat API must pass citations/sources through to clients.");
 assert.match(worker, /relatedQuestions: response\.relatedQuestions \|\| \[\]/, "The chat API must pass contextual follow-ups through to clients.");
 assert.match(worker, /presentation: buildPresentationHint\(fullResponse, sourceList/, "Streaming completion must include presentation metadata.");
-assert.doesNotMatch(worker, /genuine internal reasoning|only the private reasoning that leads up to it/, "Private chain-of-thought prompts must not be used.");\nassert.doesNotMatch(worker, /thinking = groqRawResult\\.reasoning/, "Raw provider reasoning must not be returned to clients.");
+assert.doesNotMatch(worker, /genuine internal reasoning|only the private reasoning that leads up to it/, "Private chain-of-thought prompts must not be used.");
+assert.doesNotMatch(worker, /thinking = groqRawResult\.reasoning/, "Raw provider reasoning must not be returned to clients.");
 const streamProgress = section("async function* quantumThinkingStream(", '__name(quantumThinkingStream, "quantumThinkingStream");');
 assert.match(streamProgress, /Preparing your response/, "Streaming should show a user-facing progress status.");
 assert.doesNotMatch(streamProgress, /callGeminiOrGroq|fetch\(/, "Streaming progress must not call a model to generate hidden reasoning.");
