@@ -5055,6 +5055,32 @@ function normalizeWebSources(sources) {
   }
   return normalized;
 }
+
+function filterRelevantWebSources(query, sources, limit = 5) {
+  const list = Array.isArray(sources) ? sources : [];
+  if (!list.length) return [];
+  const stop = new Set(["the", "and", "for", "are", "what", "how", "why", "who", "when", "where", "with", "from", "this", "that", "have", "has", "was", "were", "will", "your", "about", "into", "line", "simple", "explain", "please", "tell", "give", "does", "did", "can", "one", "two"]);
+  const tokens = String(query || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !stop.has(w));
+  if (!tokens.length) return list.slice(0, limit);
+  const scored = list.map((s) => {
+    const hay = `${s.title || ""} ${s.url || ""}`.toLowerCase();
+    let score = 0;
+    for (const tok of tokens) {
+      if (hay.includes(tok)) score += 2;
+    }
+    // Prefer educational / reference domains lightly
+    if (/\b(wikipedia|britannica|edu|nasa\.gov|nih\.gov|khan|dictionary|merriam)\b/i.test(hay)) score += 2;
+    // Downrank generic news RSS noise when off-topic
+    if (/news\.google\.com|\brss\b/i.test(hay) && score < 2) score -= 3;
+    return { s, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const relevant = scored.filter((x) => x.score > 0).map((x) => x.s);
+  if (relevant.length) return relevant.slice(0, limit);
+  // If nothing matches query tokens, drop sources rather than attach random news
+  return [];
+}
+
 function buildPresentationHint(answer, sources, artifact, relatedQuestions) {
   const answerText = String(answer || "");
   const sourceList = Array.isArray(sources) ? sources : [];
@@ -5164,7 +5190,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     if (searchResult && searchResult.content) {
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
       if (searchResult.sources && searchResult.sources.length > 0) {
-        webSources = normalizeWebSources(searchResult.sources);
+        webSources = filterRelevantWebSources(query, normalizeWebSources(searchResult.sources));
         const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n");
         enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
       }
@@ -5256,7 +5282,7 @@ ${response}` }], false);
   if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 12 && !isSmallTalk)) {
     try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
-  const normalizedSources = normalizeWebSources(webSources);
+  const normalizedSources = filterRelevantWebSources(query, normalizeWebSources(webSources));
   const presentation = buildPresentationHint(response, normalizedSources, artifact, relatedQuestions);
   return {
     response,
@@ -5846,7 +5872,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
         const searchResult = await performWebSearch(decision.args?.search_query || message);
         if (searchResult) {
           ultra.searchResult(searchResult.source, searchResult.content);
-          streamSources = normalizeWebSources(searchResult.sources || []);
+          streamSources = filterRelevantWebSources(typeof query !== "undefined" ? query : "", normalizeWebSources(searchResult.sources || []));
           enrichedContext = "\n\n**\u{1F310} SEARCH: " + searchResult.source + "**\n" + searchResult.content + "\n\n" + enrichedContext;
           if (streamSources.length) {
             const citationList = streamSources.map((source, index) => "[" + (index + 1) + "] " + source.title).join("\n");
