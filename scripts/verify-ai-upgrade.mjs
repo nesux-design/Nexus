@@ -52,6 +52,10 @@ assert.match(memory, /async deleteChatFromSupabase\(conversationId\)[\s\S]*?user
 const contextBuilder = section("async function buildContext(", "async function getSession(");
 assert.match(contextBuilder, /smartContextWindow\(session\.messages,\s*Math\.min\(MAX_MSGS,\s*80\)\)/, "Context selection should preserve chronological ordering.");
 
+const mcpResolver = section("async function metaThinking2026(", "async function sendPremiumAlert2026");
+assert.match(mcpResolver, /mcpPack\.nameMap\?\.\[resolved\.mcpTool\]/, "MCP calls should resolve sanitized function names through the per-request catalog map.");
+assert.match(mcpResolver, /connector:\s*exactMcpTarget\.connector[\s\S]*?tool:\s*exactMcpTarget\.tool/, "MCP calls must preserve exact connector and tool names, including underscores.");
+
 const answerEngine = section("async function quantumResponse(", "__name(quantumResponse");
 assert.match(answerEngine, /presentation,\s*\.\.\.config\.responseFormat/, "The response should expose backward-compatible presentation metadata.");
 assert.match(answerEngine, /sources:\s*normalizedSources/, "Sources should be normalized before returning.");
