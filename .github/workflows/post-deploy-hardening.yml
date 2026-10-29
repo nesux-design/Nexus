@@ -1,0 +1,120 @@
+name: Post-deploy hardening
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [post-deploy-hardening]
+    paths:
+      - 'scripts/post_deploy_available_actions.py'
+      - '.github/workflows/post-deploy-hardening.yml'
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: post-deploy-hardening
+      - name: Patch availableActions
+        run: python3 scripts/post_deploy_available_actions.py
+      - name: Disable one-shot auto-push workflows
+        run: |
+          set -e
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+          root = Path('.github/workflows')
+          targets = [
+            'apply-custom-mcp-worker.yml',
+            'fix-mcp-location-assert.yml',
+            'wire-custom-mcp-api.yml',
+            'restore-verify-script.yml',
+          ]
+          for name in targets:
+            p = root / name
+            if not p.exists():
+              print('skip missing', name)
+              continue
+            t = p.read_text()
+            # Force workflow_dispatch only
+            new = '''name: {title}
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_branch_write:
+        description: "Manual only. Type yes to allow writes on a non-main branch."
+        required: true
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
+
+jobs:
+  skip:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "One-shot patch workflow retired after production merge. Use a feature branch + workflow_dispatch if needed."
+'''.format(title=p.read_text().split('\n',1)[0].replace('name:','').strip() if False else name.replace('.yml',''))
+            # Keep original name line
+            first = t.splitlines()[0] if t.strip() else f'name: {name}'
+            body = f'''{first}
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_branch_write:
+        description: "Manual only. Type yes to allow writes on a non-main branch."
+        required: true
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
+
+jobs:
+  retired:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retired after production merge
+        run: |
+          echo "This one-shot patch workflow is retired."
+          echo "Production already includes MCP + custom MCP wiring."
+          exit 0
+'''
+            p.write_text(body)
+            print('retired', name)
+          PY
+      - name: Update audit doc
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          from datetime import datetime, timezone
+          p = Path('docs/AI-UPGRADE-AUDIT.md')
+          extra = f'''
+
+## Production rollout ({datetime.now(timezone.utc).strftime('%Y-%m-%d')})
+
+- Merged PR #1 into `main` (commit family includes structured answers, MCP OAuth Location fix, custom MCP API).
+- Live smoke: `chat` returns `presentation` / `sources` / `relatedQuestions`; `mcp_connectors` and `health` OK.
+- Post-deploy: `availableActions` extended with MCP action names; one-shot patch workflows set to workflow_dispatch-only.
+- Operator still must set Cloudflare secret `ENCRYPTION_KEY` (32+ chars). Optional `NEXUS_LEGACY_API_KEY` for legacy header clients.
+- Custom MCP routes require `NEXUS_INTERNAL_AUTH_SECRET` on the Worker (HMAC to nexus-mcp-server).
+'''
+          if p.exists():
+            t = p.read_text()
+            if 'Production rollout' not in t:
+              p.write_text(t.rstrip() + extra)
+              print('audit updated')
+            else:
+              print('audit already has production section')
+          else:
+            p.write_text('# AI Upgrade Audit' + extra)
+          PY
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/AI-UPGRADE-AUDIT.md .github/workflows/*.yml scripts/post_deploy_available_actions.py || true
+          git status
+          git diff --staged --quiet || git commit -m "fix: availableActions MCP list + retire one-shot workflows"
+          git push origin HEAD:post-deploy-hardening
