@@ -3058,7 +3058,7 @@ async function quantumAIOrchestrator(prompt, messages, options) {
     modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova", "openrouter"];
   }
   if (preferredModel) {
-    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel), "openrouter"];
+    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel && name !== "openrouter"), "openrouter"];
   }
   if (priorityMode === "speed" && !preferredModel) {
     const parallelModels = modelChain.slice(0, 2);
