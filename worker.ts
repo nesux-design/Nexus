@@ -8950,7 +8950,11 @@ var worker_default = {
       }
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
-      const actionType = url.searchParams.get("actionType") || "read";
+      const actionType = (url.searchParams.get("actionType") || "read").trim().toLowerCase();
+      const readOnlyActions = new Set(["read", "list", "search", "get", "fetch", "view"]);
+      if (!readOnlyActions.has(actionType) && targetProvider === "github") {
+        return new Response(JSON.stringify({ error: "GitHub test route permits read-only actions only; use an isolated test repository for write tests." }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       if (!targetUserId || !targetProvider) {
         return new Response(JSON.stringify({ error: "Missing parameters" }), {
           status: 400,
@@ -8960,9 +8964,13 @@ var worker_default = {
       if (!["google", "github"].includes(targetProvider)) {
         return new Response(JSON.stringify({ error: "Unsupported provider" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
       }
-      const testRecipient = url.searchParams.get("to") || env2.NEXUS_TEST_EMAIL_TO || "";
-      if (targetProvider === "google" && /send|compose|draft/i.test(actionType) && !testRecipient) {
-        return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_EMAIL_TO or pass a test recipient" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      // Never allow a request parameter to redirect a test email to an arbitrary recipient.
+      const testRecipient = env2.NEXUS_TEST_EMAIL_TO || "";
+      if (targetProvider === "google" && /send|compose|draft|create|reply|forward/i.test(actionType) && !testRecipient) {
+        return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_EMAIL_TO before running an email write test" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
+      if (targetProvider === "google" && /send|compose|draft|create|reply|forward/i.test(actionType) && url.searchParams.has("to")) {
+        return new Response(JSON.stringify({ error: "Email test destination is configured only through NEXUS_TEST_EMAIL_TO" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
       }
       let payload = {
         to: testRecipient,
