@@ -3031,6 +3031,8 @@ async function quantumAIOrchestrator(prompt, messages, options) {
   const enableWebSearch = config.webSearch !== false;
   const priorityMode = config.priority || "balanced";
   const taskType = config.taskType || "general";
+  const supportedModels = ["gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const preferredModel = supportedModels.includes(config.modelPreference) ? config.modelPreference : null;
   let modelChain;
   if (taskType === "code" || priorityMode === "speed") {
     modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova"];
@@ -3041,7 +3043,10 @@ async function quantumAIOrchestrator(prompt, messages, options) {
   } else {
     modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova"];
   }
-  if (priorityMode === "speed") {
+  if (preferredModel) {
+    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel)];
+  }
+  if (priorityMode === "speed" && !preferredModel) {
     const parallelModels = modelChain.slice(0, 2);
     const promises = parallelModels.map(async function(modelName) {
       try {
@@ -5174,7 +5179,8 @@ ${JSON.stringify(config.jsonSchema)}` : `
       priority: isPremium ? "quality" : "balanced",
       taskType: reasoning.plan?.approach === "code" ? "code" : reasoning.plan?.approach === "creative" ? "creative" : "general",
       env2,
-      userId
+      userId,
+      modelPreference: config.modelPreference
     });
   }
   console.log("aiResult.model:", aiResult.model);
@@ -7992,7 +7998,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       return new Response(JSON.stringify({ analysis: visionResult.analysis, provider: visionResult.provider }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
   }
-  const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true });
+  const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const modelPreference = allowedModelPreferences.includes(body.model) ? body.model : "auto";
+  const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true, modelPreference: modelPreference === "auto" ? undefined : modelPreference });
   await addMessage(env2, ip, auth.userId, sessionId, message, response.response);
   await saveToVectorDB(env2, auth.userId, message, { response: response.response?.substring(0, 500), type: "chat", intent: thinking.action });
   await updateDailyStat(env2, "messages");
