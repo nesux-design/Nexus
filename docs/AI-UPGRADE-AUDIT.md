@@ -46,7 +46,7 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 ## Known limits / remaining review
 
 - This is not an exact clone of proprietary ChatGPT or Claude internals.
-- The current repository does not include the full chat frontend; visual components need a frontend source repository.
+- The current repository is the Worker/backend. The separate frontend has now been identified as the private `nesux-design/Nexus-AI` repository; its isolated draft PR is [NEXUS AI: improve chat answers and remove browser API key](https://github.com/nesux-design/Nexus-AI/pull/1). Interactive UI changes must be reviewed and tested there rather than claiming that Worker metadata alone renders them.
 - Static tests and CI checks are not a substitute for live end-to-end tests against Supabase, KV, D1, Vectorize, OAuth providers, and MCP services.
 - The Telegram test endpoint reads `NEXUS_TEST_TELEGRAM_PHONE` from a Worker secret and is admin-protected. The latest branch fix passes the authenticated admin identity into plugin execution instead of a shared `test_user`; live testing still requires a dedicated Telegram test account.
 - Legacy plaintext secret compatibility in `decryptSecret` and all OAuth callback/state flows require additional review before deployment.
@@ -110,6 +110,11 @@ The implementation is being evaluated against the product goals, not merely whet
 - Confirm the configured `ENCRYPTION_KEY` and legacy token migration/reconnection plan before any production rollout.
 
 
+
+## Canvas isolation hardening (29 October 2026)
+
+- The `/canvas/:id` route serves generated/user-supplied HTML. The response now includes `Content-Security-Policy: sandbox allow-scripts` to retain interactive scripts while isolating the page in an opaque origin, plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+- Static regression assertions were added for all three headers. The CI result for the latest canvas-isolation commits has not yet been observed; do not treat the new assertions as passing until a run confirms them.
 
 ## Latest isolated-branch fixes
 
