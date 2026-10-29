@@ -2,47 +2,10 @@ name: Restore verify script
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/restore-verify-script.yml'
 
 jobs:
-  restore:
+  retired:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: nexus-a1-ai-upgrade-2026-10
-      - name: Restore and patch verify script
-        run: |
-          set -e
-          git show 019a5e436a89d0d4d84b2cbd68813f6e3fb85ff1:scripts/verify-ai-upgrade.mjs > scripts/verify-ai-upgrade.mjs
-          wc -c scripts/verify-ai-upgrade.mjs
-          # append oauth redirect assertions if missing
-          if ! grep -q 'redirect:.*manual' scripts/verify-ai-upgrade.mjs; then
-            python3 << 'PY'
-          from pathlib import Path
-          p = Path('scripts/verify-ai-upgrade.mjs')
-          t = p.read_text()
-          needle = 'for (const exportedName of ["getMcpOAuthStart", "matchMcpFromMessage", "formatMcpForThinking"])'
-          add = '''assert.match(mcpClient, /redirect:\\s*["']manual["']/, "MCP OAuth start must not follow redirects (preserve Location).");\nassert.match(mcpClient, /location:\\s*res\\.headers\\.get\\(["']location["']\\)/, "mcpGatewayFetch must surface the Location header for OAuth.");\n\n'''
-          if needle in t and 'redirect:' not in t:
-              t = t.replace(needle, add + needle)
-              p.write_text(t)
-              print('patched')
-          else:
-              print('skip patch', 'redirect' in t)
-          PY
-          fi
-          wc -c scripts/verify-ai-upgrade.mjs
-          head -3 scripts/verify-ai-upgrade.mjs
-      - name: Commit
-        run: |
-          git config user.name nexus-bot
-          git config user.email nexus@users.noreply.github.com
-          git add scripts/verify-ai-upgrade.mjs
-          git diff --staged --quiet || git commit -m "fix: restore verify-ai-upgrade.mjs + OAuth redirect asserts"
-          git push origin HEAD:nexus-a1-ai-upgrade-2026-10
+      - name: Retired after production merge
+        run: echo "One-shot patch workflow retired after production merge."
