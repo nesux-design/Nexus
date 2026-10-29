@@ -39,10 +39,10 @@ export async function mcpGatewayFetch(env, userId, path, { method = "GET", body 
     return { ok: false, status: 401, error: "Missing NEXUS_INTERNAL_AUTH_SECRET or userId", data: null };
   }
   const h = {
-    "X-Nexus-User-Id": String(userId),
-    "X-Nexus-Signature": signature,
+    ...headers,
     Accept: "application/json, text/event-stream",
-    ...headers
+    "X-Nexus-User-Id": String(userId),
+    "X-Nexus-Signature": signature
   };
   let payload = body;
   if (body != null && typeof body === "object" && !(body instanceof ArrayBuffer)) {
