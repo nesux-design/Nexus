@@ -126,4 +126,15 @@ assert.match(fullPluginSection, /const accessToken = await decryptSecret\(env2, 
 const providerExecution = fullPluginSection.slice(fullPluginSection.indexOf("  let result;"));
 assert.doesNotMatch(providerExecution, /integration\.access_token/, "Provider calls must use the decrypted token, never the stored database value.");
 
+const legacyIntegrationConnect = section('case "integration_connect":', 'case "integration_disconnect":');
+assert.match(legacyIntegrationConnect, /const oauthConfig = OAUTH_CONFIG\[app\]/, "Legacy integration connect must validate provider configuration.");
+assert.match(legacyIntegrationConnect, /JSON\.stringify\(\{\s*provider:\s*app,\s*userId:\s*auth\.userId\s*\}\)/, "Legacy integration connect must store the provider and authenticated owner in OAuth state, matching callback validation.");
+assert.ok(
+  legacyIntegrationConnect.indexOf("const oauthConfig = OAUTH_CONFIG[app]") <
+    legacyIntegrationConnect.indexOf('await env2.KV.put("oauth_state:" + oauthState'),
+  "Unsupported providers must be rejected before an OAuth state record is created."
+);
+assert.match(legacyIntegrationConnect, /const tokenStored = await storeIntegration\(env2, auth\.userId, app, \{ access_token: token \}\)/, "Direct-token integration connect must inspect secure storage results.");
+assert.match(legacyIntegrationConnect, /if \(!tokenStored\?\.success\)/, "Direct-token integration connect must not report success when persistence fails.");
+
 console.log("NEXUS upgrade static checks passed.");
