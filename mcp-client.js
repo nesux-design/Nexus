@@ -32,7 +32,8 @@ function mcpBase(env) {
   return (env && env.MCP_SERVER_URL) || DEFAULT_MCP_URL;
 }
 
-export async function mcpGatewayFetch(env, userId, path, { method = "GET", body = null, headers = {} } = {}) {
+export async function mcpGatewayFetch(env, userId, path, options = {}) {
+  const { method = "GET", body = null, headers = {} } = options;
   const secret = env?.NEXUS_INTERNAL_AUTH_SECRET;
   const signature = await signNexusUser(userId, secret);
   if (!userId || !signature) {
@@ -50,38 +51,45 @@ export async function mcpGatewayFetch(env, userId, path, { method = "GET", body 
     payload = JSON.stringify(body);
   }
   const pathClean = path.startsWith("/") ? path : `/${path}`;
+  const redirectMode = options.redirect || "follow";
   let res;
   try {
     if (env?.NEXUS_MCP_SERVER && typeof env.NEXUS_MCP_SERVER.fetch === "function") {
       res = await env.NEXUS_MCP_SERVER.fetch(`https://mcp-internal${pathClean}`, {
         method,
         headers: h,
-        body: method === "GET" || method === "HEAD" ? undefined : payload
+        body: method === "GET" || method === "HEAD" ? undefined : payload,
+        redirect: redirectMode
       });
     } else {
       res = await fetch(`${mcpBase(env)}${pathClean}`, {
         method,
         headers: h,
-        body: method === "GET" || method === "HEAD" ? undefined : payload
+        body: method === "GET" || method === "HEAD" ? undefined : payload,
+        redirect: redirectMode
       });
     }
   } catch (e) {
     return { ok: false, status: 0, error: e?.message || String(e), data: null };
   }
+  const location = res.headers.get("location") || null;
   const text = await res.text();
   let data = null;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { raw: text };
+    data = text ? { raw: text } : null;
   }
+  // 3xx with Location is a successful OAuth redirect handshake, not an error body
+  const isRedirect = res.status >= 300 && res.status < 400 && !!location;
   return {
-    ok: res.ok,
+    ok: res.ok || isRedirect,
     status: res.status,
-    error: res.ok ? null : data?.error || data?.message || `HTTP ${res.status}`,
+    error: (res.ok || isRedirect) ? null : data?.error || data?.message || `HTTP ${res.status}`,
     data,
     headers: Object.fromEntries(res.headers.entries()),
-    wwwAuthenticate: res.headers.get("www-authenticate") || null
+    wwwAuthenticate: res.headers.get("www-authenticate") || null,
+    location
   };
 }
 
@@ -266,19 +274,7 @@ export function buildMcpThinkingSteps({ message, connector, tool, result }) {
 
 export function buildMcpAnswerPrompt(userMessage, connector, tool, data) {
   const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  return `You are NEXUS, connected to real MCP servers (Claude/Grok style).
-
-User asked: "${userMessage}"
-
-MCP connector: ${connector}
-Tool: ${tool}
-
-Live MCP result:
-\`\`\`json
-${String(payload).substring(0, 12000)}
-\`\`\`
-
-Answer clearly in the user's language. No raw JSON dump. If OAuth is required, tell them to connect that MCP provider.`;
+  return `You are NEXUS, connected to real MCP servers (Claude/Grok style).\n\nUser asked: "${userMessage}"\n\nMCP connector: ${connector}\nTool: ${tool}\n\nLive MCP result:\n\`\`\`json\n${String(payload).substring(0, 12000)}\n\`\`\`\n\nAnswer clearly in the user's language. No raw JSON dump. If OAuth is required, tell them to connect that MCP provider.`;
 }
 
 export async function getMcpOAuthStart(env, userId, connectorId) {
@@ -287,8 +283,8 @@ export async function getMcpOAuthStart(env, userId, connectorId) {
   if (!Object.prototype.hasOwnProperty.call(MCP_GATEWAY_CONNECTORS, connector)) {
     return { success: false, error: "Unknown MCP connector: " + connector };
   }
-  const result = await mcpGatewayFetch(env, userId, mcpOAuthStartPath(connector), { method: "GET" });
-  const location = result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location;
+  const result = await mcpGatewayFetch(env, userId, mcpOAuthStartPath(connector), { method: "GET", redirect: "manual" });
+  const location = result.location || result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location;
   if (location && /^https?:\/\//i.test(location)) {
     return { success: true, connector, authorize_url: location, status: result.status };
   }
@@ -338,4 +334,3 @@ export function formatMcpForThinking(mcpTools = []) {
 }
 
 export { MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog };
-
