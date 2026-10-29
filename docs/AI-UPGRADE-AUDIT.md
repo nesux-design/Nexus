@@ -58,6 +58,8 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - Canva callback logs no longer include the full URL, authorization code, or state. Validated OAuth state and PKCE verifier entries are consumed to reduce replay opportunities.
 - Integration access-token prefixes are no longer printed to logs.
 - Plugin execution no longer logs the full request body, Telegram phone number, OTP, or the complete verification result that may contain a session string.
+- New integration access and refresh tokens, including refreshed tokens, are encrypted at rest with the configured `ENCRYPTION_KEY`; token reads decrypt them before provider calls. Existing plaintext records remain readable for compatibility and are migrated on read when a valid key is available.
+- New OAuth integration storage now requires `ENCRYPTION_KEY` to be configured. Do not deploy until the key is set and legacy token migration/reconnection has been planned.
 - Added static regression assertions for the OAuth-state validation and sensitive-log redaction.
 - These are source-level safeguards. They do not replace live OAuth/provider tests or a review of existing plaintext integration records.
 
