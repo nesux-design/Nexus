@@ -8922,7 +8922,17 @@ var worker_default = {
       const canvasId = path.split("/")[2];
       const html = await env2.KV.get("canvas:" + canvasId);
       if (html)
-        return new Response(html, { headers: { "Content-Type": "text/html", "Cache-Control": "public, max-age=3600" } });
+        return new Response(html, {
+          headers: {
+            "Content-Type": "text/html",
+            "Cache-Control": "public, max-age=3600",
+            // Canvas HTML can contain user-generated scripts. Keep it in a
+            // sandboxed opaque origin so it cannot access the Worker origin.
+            "Content-Security-Policy": "sandbox allow-scripts",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer"
+          }
+        });
       return new Response("Canvas not found", { status: 404 });
     }
     if (path === "/api/test/plugins") {
