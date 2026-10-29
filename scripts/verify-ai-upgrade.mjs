@@ -95,4 +95,17 @@ assert.doesNotMatch(worker, /result\.access_token\.substring\(0,\s*20\)/, "Store
 const pluginExecution = section("async function executePluginNew(", "__name(executePluginNew");
 assert.doesNotMatch(pluginExecution, /console\.log\([^\n]*(?:JSON\.stringify\(body\)|params\.phone|params\.otp|JSON\.stringify\(result\))/, "Plugin request payloads, phone numbers, OTPs, and session-bearing results must not be logged.");
 
+
+const standardOAuthCallback = section("async function handleStandardOAuthCallback(", "__name(handleStandardOAuthCallback");
+assert.match(standardOAuthCallback, /if \(!state\)/, "Standard OAuth callbacks must reject missing state.");
+assert.match(standardOAuthCallback, /storedProvider !== provider \|\| !userId/, "Standard OAuth callbacks must bind the state to a provider and authenticated owner.");
+assert.doesNotMatch(standardOAuthCallback, /X-User-ID|test_user/, "Standard OAuth callbacks must not trust caller headers or shared fallback identities.");
+assert.match(standardOAuthCallback, /await env2\.KV\.delete\("oauth_state:" \+ state\)/, "OAuth state must be consumed after validation.");
+
+const canvaOAuthCallback = section("async function handleCanvaOAuthCallback(", "__name(handleCanvaOAuthCallback");
+assert.match(canvaOAuthCallback, /parsedState\?\.provider !== "canva" \|\| !userId/, "Canva callback must validate provider and owner.");
+assert.doesNotMatch(canvaOAuthCallback, /X-User-ID|test_user|url\.toString\(\)|code=\$\{code\}|state=\$\{state\}/, "Canva callback must not use fallback identities or log authorization URL/code/state.");
+assert.match(canvaOAuthCallback, /await env2\.KV\.delete\("oauth_state:" \+ state\)/, "Canva OAuth state must be consumed after validation.");
+assert.match(genericOAuthCallback, /await env2\.KV\.delete\("oauth_code_verifier:" \+ state\)/, "Generic OAuth PKCE verifier must be consumed after lookup.");
+
 console.log("NEXUS upgrade static checks passed.");
