@@ -43,7 +43,9 @@ const pluginTest = section('if (path === "/api/test/plugins")', 'if (pathname ==
 assert.match(pluginTest, /enhancedAuthenticate\(request,\s*env2\)/);
 assert.match(pluginTest, /!testAuth\.authenticated\s*\|\|\s*!isAdmin\(testAuth\.userId\)/, "Plugin test route must be admin-only.");
 assert.doesNotMatch(pluginTest, /jaiswalanushi8@gmail\.com/, "Plugin tests must not default to a hardcoded personal email.");
-assert.match(pluginTest, /NEXUS_TEST_EMAIL_TO/, "Email side effects must use an explicit test destination.");
+assert.match(pluginTest, /const testRecipient = env2\.NEXUS_TEST_EMAIL_TO \|\| ""/, "Email tests must use only the configured test destination, never a caller-selected recipient.");
+assert.doesNotMatch(pluginTest, /url\.searchParams\.get\("to"\)\s*\|\|\s*env2\.NEXUS_TEST_EMAIL_TO/, "Caller-controlled email recipients must not override the configured test destination.");
+assert.match(pluginTest, /readOnlyActions = new Set\(\["read", "list", "search", "get", "fetch", "view"\]\)/, "GitHub test routes must reject write-capable actions unless a separate isolated test workflow is implemented.");
 
 const telegramTest = section('if (pathname === "/testplugin")', 'if (path === "/slack/events"');
 assert.match(telegramTest, /enhancedAuthenticate\(request,\s*env2\)/);
