@@ -72,6 +72,13 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - The stream progress event no longer asks a model to generate hidden internal reasoning. Provider-specific raw reasoning is not returned in the user-facing thinking field; only a concise rationale summary may be returned.
 - Regression checks now cover metadata passthrough, source normalization, stream completion metadata, and the absence of raw provider-reasoning exposure.
 
+## Legacy integration-connect compatibility fix (29 October 2026)
+
+- Fixed the legacy `integration_connect` action to store OAuth state as JSON containing the provider and authenticated user ID, matching the callback handlers' validation contract. Previously, this path stored only the provider name, causing callbacks to reject the state and breaking OAuth flows initiated through this legacy action.
+- Unsupported providers are now rejected before an OAuth state record is created.
+- Direct-token integration connect now checks the secure storage result and returns an error instead of reporting a false success if persistence fails.
+- Added static regression assertions for state shape, provider validation ordering, and secure-storage failure handling. CI verification for this follow-up commit is pending; no live OAuth provider flow has been run.
+
 ## Verification after these changes
 
 - GitHub Actions runs for the latest code revision: 40801902114 (push) and 40801903903 (pull request) — successful for dependency install, high-severity npm audit, static regression tests, production dependency audit (high severity), and local esbuild bundle validation.
