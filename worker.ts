@@ -2877,18 +2877,11 @@ __name(multiStageReasoning, "multiStageReasoning");
 __name2(multiStageReasoning, "multiStageReasoning");
 __name22(multiStageReasoning, "multiStageReasoning");
 async function generateDeepThinking(query, context) {
-  const prompt = `You are thinking through a user's request before answering it, the way an expert reasons privately before writing a final response. Write out your genuine internal reasoning in flowing prose, organized as multiple short paragraphs (not a bullet list, not JSON). Cover, in your own words:
+  const prompt = \`Write a concise, user-facing rationale summary for an AI assistant. Do not reveal private chain-of-thought or hidden deliberation. In 1–3 short sentences, state the high-level approach, important assumptions, or checks that are useful for the user to understand. Do not invent checks or claim tools were used unless the supplied context supports that. Do not answer the user's question here; the final answer is generated separately.
 
-- What is the user actually asking, and what is the real underlying need behind it?
-- What are the different ways this could be approached, and which one makes the most sense here and why?
-- What facts, constraints, edge cases, or risks should be kept in mind?
-- What is the plan for the final answer (structure, tone, level of detail)?
-
-Be concrete and specific to this exact query, not generic. Do not address the user directly and do not write the final answer itself \u2014 only the private reasoning that leads up to it.
-
-USER QUERY: "${query}"
-${context ? `RECENT CONTEXT: ${context.substring(0, 500)}` : ""}`;
-  const messages = [{ role: "user", content: prompt }];
+USER QUERY: "\${query}"
+\${context ? \`RELEVANT CONVERSATION CONTEXT: \${context.substring(0, 500)}\` : ""}\`;
+  const messages = [{ role: "user", content: prompt }];  const messages = [{ role: "user", content: prompt }];
   try {
     const aiResult = await callGeminiOrGroq(prompt, messages, {
       temperature: 0.4,
@@ -4976,6 +4969,49 @@ function extractArtifact(responseText) {
   return null;
 }
 __name(extractArtifact, "extractArtifact");
+function normalizeWebSources(sources) {
+  const seen = new Set();
+  const normalized = [];
+  for (const source of Array.isArray(sources) ? sources : []) {
+    if (!source || typeof source.url !== "string") continue;
+    let parsed;
+    try {
+      parsed = new URL(source.url.trim());
+    } catch (_) {
+      continue;
+    }
+    if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) continue;
+    parsed.hash = "";
+    const url = parsed.toString();
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const title = String(source.title || url).replace(/\s+/g, " ").trim().slice(0, 240) || url;
+    normalized.push({ title, url });
+  }
+  return normalized;
+}
+function buildPresentationHint(answer, sources, artifact, relatedQuestions) {
+  const answerText = String(answer || "");
+  const sourceList = Array.isArray(sources) ? sources : [];
+  const followUps = Array.isArray(relatedQuestions) ? relatedQuestions : [];
+  const hasCodeBlock = /\x60{3}/.test(answerText);
+  const hasTable = /\n\s*\|.+\|\s*\n/.test(answerText);
+  const hasNumberedSteps = /(^|\n)\s*\d+[.)]\s+/.test(answerText);
+  return {
+    version: 1,
+    kind: artifact?.type || (sourceList.length ? "research" : hasCodeBlock ? "code" : hasTable ? "table" : hasNumberedSteps || /(^|\n)\s*[-*]\s+/.test(answerText) ? "structured" : "prose"),
+    features: {
+      hasCode: hasCodeBlock,
+      hasTable,
+      hasLinks: /https?:\/\//i.test(answerText),
+      hasNumberedSteps,
+      hasCitations: /\[\d+\]/.test(answerText),
+      hasSources: sourceList.length > 0,
+      hasArtifact: !!artifact,
+      hasRelatedQuestions: followUps.length > 0
+    }
+  };
+}
 async function generateRelatedQuestions(env2, query, responseText) {
   try {
     const prompt = `Based on this Q&A, suggest exactly 3 short, natural follow-up questions the user might ask next.
@@ -5051,7 +5087,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     if (searchResult && searchResult.content) {
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
       if (searchResult.sources && searchResult.sources.length > 0) {
-        webSources = searchResult.sources;
+        webSources = normalizeWebSources(searchResult.sources);
         const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n");
         enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
       }
@@ -5084,7 +5120,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
       aiResult = { response: groqRawResult.content, model: "groq-gpt-oss-120b" };
       thinking = groqRawResult.reasoning || thinking;
       if (groqRawResult.sources && groqRawResult.sources.length > 0) {
-        webSources = [...webSources, ...groqRawResult.sources];
+        webSources = normalizeWebSources([...webSources, ...groqRawResult.sources]);
       }
     }
   }
@@ -5142,24 +5178,8 @@ ${response}` }], false);
   if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
     try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
-  const answerText = String(response || "");
-  const hasCodeBlock = /\x60{3}/.test(answerText);
-  const presentation = {
-    version: 1,
-    kind: artifact?.type || (webSources.length ? "research" : hasCodeBlock ? "code" : /\n\s*\|.+\|\s*\n/.test(answerText) ? "table" : /(^|\n)\s*(\d+[.)]|[-*])\s+/.test(answerText) ? "structured" : "prose"),
-    features: {
-      hasCode: hasCodeBlock,
-      hasTable: /\n\s*\|.+\|\s*\n/.test(answerText),
-      hasLinks: /https?:\/\//i.test(answerText),
-      hasNumberedSteps: /(^|\n)\s*\d+[.)]\s+/.test(answerText),
-      hasCitations: /\[\d+\]/.test(answerText),
-      hasSources: webSources.length > 0,
-      hasArtifact: !!artifact,
-      hasRelatedQuestions: relatedQuestions.length > 0
-    }
-  };
-  const seenSourceUrls = new Set();
-  const normalizedSources = (webSources || []).filter(s => s && typeof s.url === "string" && /^https?:\/\//i.test(s.url) && !seenSourceUrls.has(s.url) && seenSourceUrls.add(s.url)).map(s => ({ title: String(s.title || s.url).slice(0, 240), url: s.url }));
+  const normalizedSources = normalizeWebSources(webSources);
+  const presentation = buildPresentationHint(response, normalizedSources, artifact, relatedQuestions);
   return {
     response,
     presentation,
@@ -5351,7 +5371,7 @@ function intelligentChunk(text, mode) {
 __name(intelligentChunk, "intelligentChunk");
 __name2(intelligentChunk, "intelligentChunk");
 __name22(intelligentChunk, "intelligentChunk");
-async function quantumStreaming(gen, stream, mode) {
+async function quantumStreaming(gen, stream, mode, metadata, onComplete) {
   const config = STREAMING_MODES[mode] || STREAMING_MODES.typing;
   let fullResponse = "";
   stream.thinking("Starting " + config.name + " streaming mode...");
@@ -5380,9 +5400,17 @@ async function quantumStreaming(gen, stream, mode) {
         });
       }
     }
+    let completionMetadata = {};
+    if (typeof onComplete === "function") {
+      try { completionMetadata = await onComplete(fullResponse) || {}; } catch (_) {}
+    }
+    const sourceList = normalizeWebSources(metadata && metadata.sources);
     stream.done(fullResponse, {
       mode: config.name,
-      totalChunks: chunks.length
+      totalChunks: chunks.length,
+      ...(metadata || {}),
+      ...completionMetadata,
+      presentation: buildPresentationHint(fullResponse, sourceList, null, completionMetadata.relatedQuestions || [])
     });
     return fullResponse;
   } catch (e) {
@@ -5695,63 +5723,8 @@ __name(quantumSambaNovaStream, "quantumSambaNovaStream");
 __name2(quantumSambaNovaStream, "quantumSambaNovaStream");
 __name22(quantumSambaNovaStream, "quantumSambaNovaStream");
 async function* quantumThinkingStream(query, context) {
-  const key = getNextKey("gemini");
-  if (!key)
-    return;
-  const prompt = `You are thinking through a user's request before answering it, the way an expert reasons privately before writing a final response. Write out your genuine internal reasoning in flowing prose, organized as multiple short paragraphs (not a bullet list, not JSON). Cover, in your own words:
-
-- What is the user actually asking, and what is the real underlying need behind it?
-- What are the different ways this could be approached, and which one makes the most sense here and why?
-- What facts, constraints, edge cases, or risks should be kept in mind?
-- What is the plan for the final answer (structure, tone, level of detail)?
-
-Be concrete and specific to this exact query, not generic. Do not address the user directly and do not write the final answer itself \u2014 only the private reasoning that leads up to it.
-
-USER QUERY: "${query}"
-${context ? `RECENT CONTEXT: ${context.substring(0, 500)}` : ""}`;
-  try {
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=" + key,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 3e3,
-            temperature: 0.4
-          }
-        })
-      }
-    );
-    if (!response.ok) {
-      if (response.status === 429)
-        markKeyFailed("gemini", key, 60);
-      return;
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done)
-        break;
-      buffer = buffer + decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data: ") && !line.includes("[DONE]")) {
-          try {
-            const data = JSON.parse(line.substring(6));
-            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text)
-              yield text;
-          } catch (e) {
-          }
-        }
-      }
-    }
-  } catch (e) {
+  if (String(query || "").trim()) {
+    yield "Preparing your response using the relevant conversation context.";
   }
 }
 __name(quantumThinkingStream, "quantumThinkingStream");
@@ -5782,18 +5755,31 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
           ultra.thinking(thoughtChunk);
       }
       let enrichedContext = context || "";
+      let streamSources = [];
       if (decision.intent === "web_search") {
         const searchResult = await performWebSearch(decision.args?.search_query || message);
         if (searchResult) {
           ultra.searchResult(searchResult.source, searchResult.content);
+          streamSources = normalizeWebSources(searchResult.sources || []);
           enrichedContext = "\n\n**\u{1F310} SEARCH: " + searchResult.source + "**\n" + searchResult.content + "\n\n" + enrichedContext;
+          if (streamSources.length) {
+            const citationList = streamSources.map((source, index) => "[" + (index + 1) + "] " + source.title).join("\n");
+            enrichedContext += "\n\n**CITE SOURCES:** Add numbered citations like [1] immediately after claims supported by the matching source. Use only these sources:\n" + citationList;
+          }
         }
       }
       const detectedLanguage = detectLanguage(message);
       const finalPrompt = getMasterPrompt() + "\n\n**Language: " + (INDIAN_LANGUAGES[detectedLanguage]?.name || "English") + "**\n**Today: " + TODAY + "**\n\n" + enrichedContext;
       const messages = [{ role: "user", content: finalPrompt }];
       const gen = quantumStreamGenerator(messages, finalPrompt);
-      fullResponse = await quantumStreaming(gen, ultra, mode);
+      fullResponse = await quantumStreaming(gen, ultra, mode, { intent: decision.intent, sources: streamSources }, async (answerText) => {
+        const trimmedMessage = String(message || "").trim();
+        const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye[.!?\s]*$/i.test(trimmedMessage);
+        const relatedQuestions = trimmedMessage.length > 30 && !isSmallTalk
+          ? await generateRelatedQuestions(env2, message, answerText)
+          : [];
+        return { relatedQuestions };
+      });
       if (fullResponse && userId !== "anonymous") {
         await addMessage(env2, ip, userId, sessionId, message, fullResponse);
         await saveToVectorDB(env2, userId, message, {
@@ -7968,6 +7954,13 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     } else {
       return new Response(JSON.stringify({
         response: response.response,
+        presentation: response.presentation || null,
+        sources: response.sources || [],
+        relatedQuestions: response.relatedQuestions || [],
+        artifact: response.artifact || null,
+        searchPerformed: response.searchPerformed === true,
+        confidence: response.confidence ?? null,
+        language: response.language || targetLanguage,
         thinking: response.thinking,
         intent: thinking.action,
         model: response.model,
@@ -7991,6 +7984,13 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   return new Response(JSON.stringify({
     response: response.response,
     ...response.json !== void 0 ? { json: response.json, jsonValid: response.jsonValid } : {},
+    presentation: response.presentation || null,
+    sources: response.sources || [],
+    relatedQuestions: response.relatedQuestions || [],
+    artifact: response.artifact || null,
+    searchPerformed: response.searchPerformed === true,
+    confidence: response.confidence ?? null,
+    language: response.language || targetLanguage,
     thinking: response.thinking,
     intent: thinking.action,
     model: response.model,
