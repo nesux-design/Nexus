@@ -57,6 +57,19 @@ assert.match(answerEngine, /presentation,\s*\.\.\.config\.responseFormat/, "The 
 assert.match(answerEngine, /sources:\s*normalizedSources/, "Sources should be normalized before returning.");
 assert.match(answerEngine, /config\.includeRelatedQuestions !== false/, "Relevant follow-up questions should be available by default.");
 
+
+assert.match(worker, /function normalizeWebSources\(sources\)/, "Web sources must be normalized before they are returned.");
+assert.match(worker, /webSources = normalizeWebSources\(searchResult\.sources\)/, "Citation numbering must use the normalized source list.");
+assert.match(worker, /function buildPresentationHint\(/, "Presentation metadata should be generated consistently.");
+assert.match(worker, /presentation: response\.presentation \|\| null/, "The chat API must pass presentation hints through to clients.");
+assert.match(worker, /sources: response\.sources \|\| \[\]/, "The chat API must pass citations/sources through to clients.");
+assert.match(worker, /relatedQuestions: response\.relatedQuestions \|\| \[\]/, "The chat API must pass contextual follow-ups through to clients.");
+assert.match(worker, /presentation: buildPresentationHint\(fullResponse, sourceList/, "Streaming completion must include presentation metadata.");
+assert.doesNotMatch(worker, /genuine internal reasoning|only the private reasoning that leads up to it/, "Private chain-of-thought prompts must not be used.");
+const streamProgress = section("async function* quantumThinkingStream(", '__name(quantumThinkingStream, "quantumThinkingStream");');
+assert.match(streamProgress, /Preparing your response/, "Streaming should show a user-facing progress status.");
+assert.doesNotMatch(streamProgress, /callGeminiOrGroq|fetch\(/, "Streaming progress must not call a model to generate hidden reasoning.");
+
 for (const exportedName of ["getMcpOAuthStart", "matchMcpFromMessage", "formatMcpForThinking"]) {
   assert.match(mcpClient, new RegExp("export (?:async )?function " + exportedName + "\\b"), "Missing MCP client export: " + exportedName);
 }
