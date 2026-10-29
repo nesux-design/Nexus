@@ -54,6 +54,8 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 ## Additional security review fixes (29 October 2026)
 
 - Generic OAuth callbacks now reject missing, malformed, mismatched, or ownerless state records; malformed state no longer falls back to the shared `test_user` identity.
+- Figma/Discord and Canva callback handlers now require the provider-bound JSON state and a non-empty owner ID; they no longer trust callback request headers or fall back to `test_user`.
+- Canva callback logs no longer include the full URL, authorization code, or state. Validated OAuth state and PKCE verifier entries are consumed to reduce replay opportunities.
 - Integration access-token prefixes are no longer printed to logs.
 - Plugin execution no longer logs the full request body, Telegram phone number, OTP, or the complete verification result that may contain a session string.
 - Added static regression assertions for the OAuth-state validation and sensitive-log redaction.
