@@ -1,0 +1,55 @@
+name: Post-deploy hardening
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [post-deploy-hardening]
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch availableActions
+        run: python3 scripts/post_deploy_available_actions.py
+      - name: Retire one-shot workflows
+        run: |
+          set -e
+          for f in apply-custom-mcp-worker.yml fix-mcp-location-assert.yml wire-custom-mcp-api.yml restore-verify-script.yml; do
+            path=".github/workflows/$f"
+            [ -f "$path" ] || continue
+            name_line=$(head -1 "$path")
+            cat > "$path" << EOF
+${name_line}
+
+on:
+  workflow_dispatch:
+
+jobs:
+  retired:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retired after production merge
+        run: echo "One-shot patch workflow retired after production merge."
+EOF
+            echo "retired $f"
+          done
+      - name: Audit note
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/AI-UPGRADE-AUDIT.md')
+          extra = "\n\n## Production rollout\n\n- Merged PR #1 to main; live smoke OK (chat presentation fields, mcp_connectors, health).\n- availableActions lists MCP actions; one-shot patch workflows retired to workflow_dispatch-only.\n- Set Cloudflare secrets: ENCRYPTION_KEY (required), NEXUS_LEGACY_API_KEY (optional), NEXUS_INTERNAL_AUTH_SECRET (MCP HMAC).\n"
+          if p.exists() and 'Production rollout' not in p.read_text():
+            p.write_text(p.read_text().rstrip() + extra)
+          print('audit ok')
+          PY
+      - name: Commit and push
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add -A
+          git diff --staged --quiet || git commit -m "fix: MCP availableActions + retire one-shot workflows"
+          git push origin HEAD:post-deploy-hardening
