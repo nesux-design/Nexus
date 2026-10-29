@@ -7604,7 +7604,16 @@ case "integration_status": {
         });
       }
       if (token) {
-        await storeIntegration(env2, auth.userId, app, { access_token: token });
+        const tokenStored = await storeIntegration(env2, auth.userId, app, { access_token: token });
+        if (!tokenStored?.success) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: "Integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration."
+          }), {
+            status: 500,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
+          });
+        }
         return new Response(JSON.stringify({
           success: true,
           message: `${app} connected with token`
@@ -7612,8 +7621,6 @@ case "integration_status": {
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
         });
       }
-      const oauthState = generatenewId();
-      await env2.KV.put("oauth_state:" + oauthState, app, { expirationTtl: 300 });
       const oauthConfig = OAUTH_CONFIG[app];
       if (!oauthConfig) {
         return new Response(JSON.stringify({ error: `${app} not supported` }), {
@@ -7621,6 +7628,8 @@ case "integration_status": {
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
         });
       }
+      const oauthState = generatenewId();
+      await env2.KV.put("oauth_state:" + oauthState, JSON.stringify({ provider: app, userId: auth.userId }), { expirationTtl: 300 });
       let pkceExtra = "";
       if (oauthConfig.pkce) {
         const codeVerifier = generateCodeVerifier();
