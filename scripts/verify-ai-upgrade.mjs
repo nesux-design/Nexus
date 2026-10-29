@@ -16,7 +16,7 @@ function section(startMarker, endMarker) {
 assert.doesNotMatch(worker, /API_KEY:\s*["\x27]akhil-123["\x27]/, "The committed legacy API key must not return.");
 assert.doesNotMatch(worker, /You operate at GPT-5\.5 level|100% production grade answers/, "Do not claim parity with a proprietary model or promise perfect accuracy.");
 assert.doesNotMatch(worker, /Give 100% accurate|GPT-5\.5/, "Do not guarantee perfect accuracy or label the service as a proprietary model version.");
-assert.doesNotMatch(packageJson, /GPT-5\\.5|ChatGPT-level|Claude-level|100% accurate/i, "Package metadata must not imply equivalence to a proprietary model version.");
+assert.doesNotMatch(packageJson, /GPT-5\.5|ChatGPT-level|Claude-level|100% accurate/i, "Package metadata must not imply equivalence to a proprietary model version.");
 assert.match(worker, /Do not claim to be ChatGPT, Claude, or a specific proprietary model/, "Assistant identity and model capability claims must be grounded.");
 assert.match(worker, /Do not turn ordinary factual questions about visual subjects/, "Visual factual questions must not trigger image generation unnecessarily.");
 assert.match(worker, /legacyKeyMatches = !!env2\.NEXUS_LEGACY_API_KEY && apiKey === env2\.NEXUS_LEGACY_API_KEY/, "Legacy API compatibility must be explicitly configured as a Worker secret.");
