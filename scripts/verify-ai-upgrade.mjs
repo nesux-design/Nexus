@@ -83,4 +83,16 @@ for (const exportedName of ["getMcpOAuthStart", "matchMcpFromMessage", "formatMc
 }
 assert.match(mcpClient, /export \{ MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog \}/, "MCP catalog exports must be present.");
 
+
+const genericOAuthCallback = section("async function handleGenericOAuthCallback(", "__name(handleGenericOAuthCallback");
+assert.match(genericOAuthCallback, /if \(!state\)/, "OAuth callback must reject missing state.");
+assert.match(genericOAuthCallback, /const userId = typeof parsedState\?\.userId === "string" \? parsedState\.userId\.trim\(\) : ""/, "OAuth state must carry a non-empty string user ID.");
+assert.doesNotMatch(genericOAuthCallback, /userId\s*=\s*"test_user"/, "Malformed OAuth state must never fall back to a shared test identity.");
+assert.match(genericOAuthCallback, /storedProvider !== provider \|\| !userId/, "OAuth callback must validate provider and owner before exchanging tokens.");
+
+assert.doesNotMatch(worker, /accessToken\.substring\(0,\s*20\)/, "Integration access-token prefixes must not be written to logs.");
+assert.doesNotMatch(worker, /result\.access_token\.substring\(0,\s*20\)/, "Stored access-token prefixes must not be written to logs.");
+const pluginExecution = section("async function executePluginNew(", "__name(executePluginNew");
+assert.doesNotMatch(pluginExecution, /console\.log\([^\n]*(?:JSON\.stringify\(body\)|params\.phone|params\.otp|JSON\.stringify\(result\))/, "Plugin request payloads, phone numbers, OTPs, and session-bearing results must not be logged.");
+
 console.log("NEXUS upgrade static checks passed.");
