@@ -14,6 +14,7 @@ function section(startMarker, endMarker) {
 
 assert.doesNotMatch(worker, /API_KEY:\s*["\x27]akhil-123["\x27]/, "The committed legacy API key must not return.");
 assert.doesNotMatch(worker, /You operate at GPT-5\.5 level|100% production grade answers/, "Do not claim parity with a proprietary model or promise perfect accuracy.");
+assert.doesNotMatch(worker, /Give 100% accurate|GPT-5\.5/, "Do not guarantee perfect accuracy or label the service as a proprietary model version.");
 assert.match(worker, /Do not claim to be ChatGPT, Claude, or a specific proprietary model/, "Assistant identity and model capability claims must be grounded.");
 assert.match(worker, /Do not turn ordinary factual questions about visual subjects/, "Visual factual questions must not trigger image generation unnecessarily.");
 assert.match(worker, /legacyKeyMatches = !!env2\.NEXUS_LEGACY_API_KEY && apiKey === env2\.NEXUS_LEGACY_API_KEY/, "Legacy API compatibility must be explicitly configured as a Worker secret.");
@@ -37,6 +38,8 @@ assert.match(telegramTest, /enhancedAuthenticate\(request,\s*env2\)/);
 assert.match(telegramTest, /!testAuth\.authenticated\s*\|\|\s*!isAdmin\(testAuth\.userId\)/, "Telegram test route must be admin-only.");
 assert.doesNotMatch(telegramTest, /\+919839524592/, "Telegram test must not contain a hardcoded phone number.");
 assert.match(telegramTest, /NEXUS_TEST_TELEGRAM_PHONE/, "Telegram test must use an explicit test phone secret.");
+assert.match(telegramTest, /userId:\s*testAuth\.userId/, "Telegram test execution must use the authenticated admin identity, not a shared test user.");
+assert.doesNotMatch(telegramTest, /userId:\s*["\x27]test_user["\x27]/, "Telegram test must not use a shared test identity.");
 
 for (const name of ["handleFigmaOAuth", "handleDiscordOAuth", "handleCanvaOAuth", "handleGenericOAuthInit"]) {
   const start = worker.indexOf("async function " + name + "(");
