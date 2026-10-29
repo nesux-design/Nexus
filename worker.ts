@@ -894,6 +894,9 @@ async function handleCanvaOAuthCallback(env2, request) {
   if (!state) {
     return jsonResponse({ error: "Missing state parameter" }, 400);
   }
+  if (!state) {
+    return jsonResponse({ error: "Missing state parameter" }, 400);
+  }
   const stored = await env2.KV.get("oauth_state:" + state);
   if (!stored) {
     return jsonResponse({ error: "Invalid state" }, 400);
