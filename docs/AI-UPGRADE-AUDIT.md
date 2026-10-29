@@ -86,3 +86,26 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - The current npm audit reports one moderate advisory in the transitive @hono/node-server dependency (GHSA-rmxm-3fg6-px4f); the high-severity audit threshold passes, but this is not a zero-vulnerability dependency report.
 - These changes are committed only to nexus-a1-ai-upgrade-2026-10 and its existing draft PR. The main branch and production nexus-a1 Worker have not been changed or deployed.
 - The Worker can return richer metadata, but a separate frontend must render interactive cards, charts, diagrams, source panels, and other visual UI. This repository contains the backend Worker, not that frontend implementation.
+
+## User goals and acceptance criteria (29 October 2026)
+
+The implementation is being evaluated against the product goals, not merely whether it builds:
+
+1. **Answer quality and presentation:** direct answers first; task-appropriate structure; readable code blocks; comparison tables/checklists when useful; concise rationale without exposing private chain-of-thought; honest uncertainty and no promises of perfect accuracy or proprietary-model parity.
+2. **Research and citations:** when web search is used, attach normalized, deduplicated, credential-free HTTP(S) sources; ensure citation markers and source numbering agree; distinguish sourced facts from inference and state when a tool/search fails.
+3. **Conversation continuity:** preserve relevant recent context and chronology, support useful contextual follow-up questions, and keep conversation data strictly scoped to the authenticated owner.
+4. **Tools and integrations:** preserve existing MCP/provider integrations and capabilities; use the exact resolved connector/tool; report real tool results rather than implying success; secure OAuth state, tokens, logs, and test endpoints.
+5. **Streaming and response actions:** stream user-facing progress and a final completion event with response metadata. Regenerate, feedback, and other actions must verify ownership and persist the expected result.
+6. **Reliability and security:** retain existing functionality and test endpoints while restricting dangerous tests to an authenticated admin and explicit test destinations; fail closed when encryption or identity verification is unavailable.
+7. **Frontend experience:** the backend should expose stable metadata, but interactive cards, charts, diagrams, source panels, mobile layout, and message controls are only accepted after the actual frontend source is identified and tested. They must not be marked complete based on Worker metadata alone.
+8. **Verification:** run static tests and local bundling on the isolated branch; review CI logs and the full diff; then run non-destructive authenticated integration checks where credentials and dedicated test accounts are available. No production deploy, merge to main, or destructive/live side-effect test is implied by this audit.
+
+### Remaining gates before calling the upgrade complete
+
+- Reconcile every user-facing capability claim in the master prompt with what is actually implemented. The prompt still contains an absolute-accuracy instruction; remove that contradiction in code before claiming this goal is satisfied.
+- Verify test-route destination configuration against the actual route implementation; the audit notes and regression assertions must agree with the code.
+- Review the entire diff for workflow changes that could write to `main`, secret leakage, OAuth-state edge cases, and migration compatibility.
+- Identify the separate frontend repository/source and verify its auth headers, streaming parser, citation rendering, follow-up handling, and mobile UX before any deployment.
+- Run end-to-end checks against dedicated test accounts and sandbox integrations; do not invoke endpoints that send email/Telegram messages or mutate connected accounts until their destination and side effects are confirmed.
+- Confirm the configured `ENCRYPTION_KEY` and legacy token migration/reconnection plan before any production rollout.
+
