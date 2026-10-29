@@ -128,3 +128,13 @@ The implementation is being evaluated against the product goals, not merely whet
 - The admin-only `/api/test/plugins` endpoint no longer accepts a request-supplied email recipient. Email write tests must use the configured `NEXUS_TEST_EMAIL_TO` destination; a caller-supplied `to` parameter is rejected for email write actions.
 - GitHub actions through this general test endpoint are restricted to read-only action names. Write-capable GitHub tests require a separate isolated test workflow/repository rather than relying on a default repository name.
 - The regression script now checks both restrictions. These are source-level changes only; the updated commit's CI run and runtime behavior still need confirmation. No test endpoint was invoked and no email, message, or repository mutation was triggered.
+
+## Production rollout status (2026-10-29)
+
+- Merged upgrade to `main` and Cloudflare production worker is serving structured chat metadata (`presentation`, `sources`, `relatedQuestions`).
+- MCP actions listed in `availableActions`; custom MCP requires `NEXUS_INTERNAL_AUTH_SECRET`.
+- Batch2: ChatGPT-class answer formation + follow-up fallback + `provider` alias.
+- Batch3: OpenRouter in model preference/chain + stream completion meta.
+- Batch4: tool-failure honesty in master prompt; thinking truncated unless `showThinking: true`.
+- Operators should still set `ENCRYPTION_KEY` and review OAuth reconnects.
+- Frontend rendering remains out of scope for this Worker repo.

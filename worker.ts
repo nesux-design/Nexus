@@ -1294,6 +1294,8 @@ Answer formation (ChatGPT-class):
 - For multi-part or how-to requests, use clear markdown structure (short headings, bullets, numbered steps).
 - Prefer scannable layout over long walls of text; keep paragraphs short.
 - When tools/search/MCP data was used, ground claims in that data and do not invent results.
+- If a tool, plugin, or MCP call fails or returns empty data, say so clearly; never invent profile, file, or account details.
+- Prefer "I couldn't retrieve X" over confident guesses when live data is missing.
 - End substantial answers ready for follow-ups; the system may attach related questions separately.
 
 When asked about your name "NEXUS":
@@ -8109,7 +8111,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         searchPerformed: response.searchPerformed === true,
         confidence: response.confidence ?? null,
         language: response.language || targetLanguage,
-        thinking: response.thinking,
+        thinking: (body.showThinking === true ? response.thinking : (response.thinking ? String(response.thinking).split(/\n/).slice(0, 1).join(" ").slice(0, 160) : null)),
         intent: thinking.action,
         model: response.model,
         latency: Date.now() - startTime,
@@ -8139,7 +8141,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     searchPerformed: response.searchPerformed === true,
     confidence: response.confidence ?? null,
     language: response.language || targetLanguage,
-    thinking: response.thinking,
+    thinking: (body.showThinking === true ? response.thinking : (response.thinking ? String(response.thinking).split(/\n/).slice(0, 1).join(" ").slice(0, 160) : null)),
     intent: thinking.action,
     model: response.model,
     latency: Date.now() - startTime,
