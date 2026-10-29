@@ -122,3 +122,9 @@ The implementation is being evaluated against the product goals, not merely whet
 - Removed the unsupported GPT-5.5 branding from the Worker-generated logo and package description.
 - Replaced the absolute-accuracy prompt instruction with a requirement to aim for accuracy while communicating uncertainty and limitations.
 - Added regression assertions for these three conditions. These assertions have been committed; the CI result for this latest commit has not yet been observed, so they are not reported as executed/passing yet.
+
+## Plugin test side-effect guard (29 October 2026)
+
+- The admin-only `/api/test/plugins` endpoint no longer accepts a request-supplied email recipient. Email write tests must use the configured `NEXUS_TEST_EMAIL_TO` destination; a caller-supplied `to` parameter is rejected for email write actions.
+- GitHub actions through this general test endpoint are restricted to read-only action names. Write-capable GitHub tests require a separate isolated test workflow/repository rather than relying on a default repository name.
+- The regression script now checks both restrictions. These are source-level changes only; the updated commit's CI run and runtime behavior still need confirmation. No test endpoint was invoked and no email, message, or repository mutation was triggered.
