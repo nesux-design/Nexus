@@ -1904,8 +1904,8 @@ async function storeIntegration(env2, userId, appName, tokenData) {
     console.log(`\u2705 storeIntegration: Table ready`);
     const id = "int:" + userId + ":" + appName;
     const now = Date.now();
-    const accessToken = tokenData.access_token || null;
-    const refreshToken = tokenData.refresh_token || null;
+    const accessToken = tokenData.access_token ? await encryptSecret(env2, tokenData.access_token) : null;
+    const refreshToken = tokenData.refresh_token ? await encryptSecret(env2, tokenData.refresh_token) : null;
     const sessionString = tokenData.session_string ? await encryptSecret(env2, tokenData.session_string) : null;
     const config = JSON.stringify(tokenData.config || {});
     const expiresAt = tokenData.expires_at || null;
@@ -1997,9 +1997,11 @@ async function refreshOAuthToken(env2, userId, appName, refreshToken) {
     if (!data.access_token) return null;
     const newExpiresAt = Date.now() + (data.expires_in || 3600) * 1e3;
     if (env2.DB) {
+      const encryptedAccessToken = await encryptSecret(env2, data.access_token);
+      const encryptedRefreshToken = data.refresh_token ? await encryptSecret(env2, data.refresh_token) : null;
       await env2.DB.prepare(
         "UPDATE user_integrations SET access_token = ?, refresh_token = COALESCE(?, refresh_token), expires_at = ?, updated_at = ? WHERE user_id = ? AND app_name = ?"
-      ).bind(data.access_token, data.refresh_token || null, newExpiresAt, (/* @__PURE__ */ new Date()).toISOString(), userId, appName).run();
+      ).bind(encryptedAccessToken, encryptedRefreshToken, newExpiresAt, (/* @__PURE__ */ new Date()).toISOString(), userId, appName).run();
     }
     trackEvent(env2, "integration_token_refreshed", { userId, model: appName, status: "ok" });
     return { access_token: data.access_token, refresh_token: data.refresh_token || null, expires_at: newExpiresAt };
@@ -2021,6 +2023,23 @@ async function getIntegration(env2, userId, appName) {
       "SELECT * FROM user_integrations WHERE user_id = ? AND app_name = ? AND status = 'CONNECTED'"
     ).bind(userId, appName).first();
     if (result) {
+      const storedAccessToken = result.access_token || null;
+      const storedRefreshToken = result.refresh_token || null;
+      result.access_token = storedAccessToken ? await decryptSecret(env2, storedAccessToken) : null;
+      result.refresh_token = storedRefreshToken ? await decryptSecret(env2, storedRefreshToken) : null;
+      const encryptionKeyReady = typeof env2.ENCRYPTION_KEY === "string" && env2.ENCRYPTION_KEY.trim().length >= 32;
+      const needsTokenMigration = (storedAccessToken && !storedAccessToken.startsWith("enc:")) || (storedRefreshToken && !storedRefreshToken.startsWith("enc:"));
+      if (encryptionKeyReady && needsTokenMigration) {
+        try {
+          const encryptedAccessToken = storedAccessToken ? (storedAccessToken.startsWith("enc:") ? storedAccessToken : await encryptSecret(env2, storedAccessToken)) : null;
+          const encryptedRefreshToken = storedRefreshToken ? (storedRefreshToken.startsWith("enc:") ? storedRefreshToken : await encryptSecret(env2, storedRefreshToken)) : null;
+          await env2.DB.prepare(
+            "UPDATE user_integrations SET access_token = ?, refresh_token = ? WHERE user_id = ? AND app_name = ?"
+          ).bind(encryptedAccessToken, encryptedRefreshToken, userId, appName).run();
+        } catch (migrationError) {
+          console.error("Integration token migration deferred; verify ENCRYPTION_KEY configuration.");
+        }
+      }
       console.log(`\u2705 getIntegration: Found ${appName} for user ${userId}`);
       console.log(`\u{1F535} getIntegration: access_token = ${result.access_token ? "present" : "null"}`);
       console.log(`\u{1F535} getIntegration: session_string = ${result.session_string ? "present" : "null"}`);
@@ -4436,38 +4455,42 @@ async function executePluginFull(env2, auth, body) {
   if (!integration) {
     return { error: `${app} not connected. Please connect first.` };
   }
+  const accessToken = await decryptSecret(env2, accessToken);
+  if (!accessToken) {
+    return { error: `Could not decrypt the ${app} integration token. Verify ENCRYPTION_KEY or reconnect this integration.` };
+  }
   let result;
   try {
     switch (app) {
       case "figma":
         if (["get_me", "me", "get_user"].includes(String(action))) {
-          result = await runPluginApi("figma", "get_me", integration.access_token, params || {}, {});
+          result = await runPluginApi("figma", "get_me", accessToken, params || {}, {});
         } else {
-          result = await figmaFullControl(integration.access_token, params?.fileId, action, params);
+          result = await figmaFullControl(accessToken, params?.fileId, action, params);
         }
         break;
       case "telegram":
-        result = await telegramFullControl(integration.access_token, action, params);
+        result = await telegramFullControl(accessToken, action, params);
         break;
       case "discord":
         if (["get_user","list_guilds","list_channels","list_guild_channels","get_guild"].includes(String(action))) {
-          result = await runPluginApi("discord", action, integration.access_token, params || {}, {});
+          result = await runPluginApi("discord", action, accessToken, params || {}, {});
         } else {
-          result = await discordFullControl(integration.access_token, action, params);
+          result = await discordFullControl(accessToken, action, params);
         }
         break;
       case "wolfram":
-        result = await wolframFullControl(integration.access_token, action, params);
+        result = await wolframFullControl(accessToken, action, params);
         break;
       case "canva":
-        result = await canvaFullControl(integration.access_token, action, params);
+        result = await canvaFullControl(accessToken, action, params);
         break;
       case "zapier":
-        result = await zapierFullControl(integration.access_token, params);
+        result = await zapierFullControl(accessToken, params);
         break;
       default:
         if (typeof runPluginApi === "function") {
-          const pluginResult = await runPluginApi(String(app).toLowerCase(), action, integration.access_token, params || {}, {});
+          const pluginResult = await runPluginApi(String(app).toLowerCase(), action, accessToken, params || {}, {});
           const unsupported = pluginResult && typeof pluginResult.error === "string" && String(pluginResult.error).startsWith("Unsupported");
           if (!unsupported) {
             if (pluginResult && (pluginResult.status === 401 || pluginResult.httpStatus === 401)) {
@@ -4482,7 +4505,7 @@ async function executePluginFull(env2, auth, body) {
             return { error: `No built-in API for ${app}.${action}. Provide endpoint or extend runPluginApi.` };
           }
           const apiResult = await genericAuthenticatedApiCall(
-            integration.access_token,
+            accessToken,
             params.method || "GET",
             params.endpoint,
             params.body,
