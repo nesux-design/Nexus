@@ -1,0 +1,45 @@
+name: Apply availableActions MCP on main
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-available-actions-main.yml'
+      - 'scripts/post_deploy_available_actions.py'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch worker availableActions
+        run: |
+          set -e
+          python3 scripts/post_deploy_available_actions.py
+          # verify
+          python3 - <<'PY'
+          from pathlib import Path
+          t = Path('worker.ts').read_text()
+          i = t.find('availableActions: [')
+          j = t.find(']', i)
+          block = t[i:j]
+          assert 'mcp_connectors' in block, block[-200:]
+          assert 'mcp_custom_list' in block
+          print('OK availableActions includes MCP')
+          PY
+      - name: Commit to main
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "fix: list MCP actions in availableActions"
+            git push origin HEAD:main
+          fi
