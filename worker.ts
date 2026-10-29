@@ -7757,7 +7757,17 @@ case "integration_status": {
           "integration_status",
           "integration_connect",
           "integration_disconnect",
-          "execute_plugin"
+          "execute_plugin",
+          "mcp_connectors",
+          "mcp_oauth_start",
+          "mcp_tools_list",
+          "mcp_tools_call",
+          "mcp_custom_list",
+          "mcp_custom_add",
+          "mcp_custom_delete",
+          "mcp_custom_oauth_start",
+          "mcp_custom_tools_list",
+          "mcp_custom_tools_call"
         ]
       }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   }
@@ -9180,7 +9190,7 @@ var worker_default = {
       return await handleClearSessionAction(env2, auth, params);
     }
     if (path === "/")
-      return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: "8.0", creator: CONFIG.CREATOR, year: CURRENT_YEAR, oneEndpoint: "/api", documentation: 'POST /api with { "action": "...", ...params }', availableActions: ["chat", "voice", "image_generate", "real_photo", "image_edit", "image_enhance", "shopping", "youtube", "code_help", "file_analysis", "qr_generate", "reminder", "canvas", "translate", "premium_status", "premium_request", "premium_verify", "premium_plans", "conversations_list", "conversations_save", "conversations_delete", "conversations_search", "message_edit", "regenerate_response", "message_feedback", "user_profile", "agents_list", "image_gallery", "health", "clear_session"], premium: PREMIUM_TIERS_2026, upi: CONFIG.UPI_ID }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ name: CONFIG.APP_NAME, version: "8.0", creator: CONFIG.CREATOR, year: CURRENT_YEAR, oneEndpoint: "/api", documentation: 'POST /api with { "action": "...", ...params }', availableActions: ["chat", "voice", "image_generate", "real_photo", "image_edit", "image_enhance", "shopping", "youtube", "code_help", "file_analysis", "qr_generate", "reminder", "canvas", "translate", "premium_status", "premium_request", "premium_verify", "premium_plans", "conversations_list", "conversations_save", "conversations_delete", "conversations_search", "message_edit", "regenerate_response", "message_feedback", "user_profile", "agents_list", "image_gallery", "health", "clear_session", "mcp_connectors", "mcp_oauth_start", "mcp_tools_list", "mcp_tools_call", "mcp_custom_list", "mcp_custom_add", "mcp_custom_delete", "mcp_custom_oauth_start", "mcp_custom_tools_list", "mcp_custom_tools_call", "integration_status", "integration_connect", "integration_disconnect", "execute_plugin"], premium: PREMIUM_TIERS_2026, upi: CONFIG.UPI_ID }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     return new Response(JSON.stringify({ error: "Not found", tip: "Use /api endpoint" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   },
   async scheduled(event: ScheduledEvent, env2: Env, ctx: ExecutionContext): Promise<void> {
