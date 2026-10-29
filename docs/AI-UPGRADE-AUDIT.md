@@ -48,7 +48,7 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - This is not an exact clone of proprietary ChatGPT or Claude internals.
 - The current repository does not include the full chat frontend; visual components need a frontend source repository.
 - Static tests and CI checks are not a substitute for live end-to-end tests against Supabase, KV, D1, Vectorize, OAuth providers, and MCP services.
-- The Telegram test endpoint reads `NEXUS_TEST_TELEGRAM_PHONE` from a Worker secret and is admin-protected. However, it still passes a shared `test_user` identity into plugin execution; change that to the authenticated admin or a dedicated isolated test identity before live testing.
+- The Telegram test endpoint reads `NEXUS_TEST_TELEGRAM_PHONE` from a Worker secret and is admin-protected. The latest branch fix passes the authenticated admin identity into plugin execution instead of a shared `test_user`; live testing still requires a dedicated Telegram test account.
 - Legacy plaintext secret compatibility in `decryptSecret` and all OAuth callback/state flows require additional review before deployment.
 
 ## Additional security review fixes (29 October 2026)
@@ -102,10 +102,18 @@ The implementation is being evaluated against the product goals, not merely whet
 
 ### Remaining gates before calling the upgrade complete
 
-- Reconcile every user-facing capability claim in the master prompt with what is actually implemented. The prior audit identified an absolute-accuracy instruction; re-check the current branch source and remove any such contradiction before claiming this goal is satisfied.
+- Removed the master-prompt instruction to give “100% accurate” answers; it now explicitly tells the assistant not to guarantee correctness and to state uncertainty/limitations. Removed the GPT-5.5 label from the Worker logo and the unsupported model-level package description.
 - Verify test-route destination configuration against the actual route implementation; the audit notes and regression assertions must agree with the code.
 - Review the entire diff for workflow changes that could write to `main`, secret leakage, OAuth-state edge cases, and migration compatibility.
 - Identify the separate frontend repository/source and verify its auth headers, streaming parser, citation rendering, follow-up handling, and mobile UX before any deployment.
 - Run end-to-end checks against dedicated test accounts and sandbox integrations; do not invoke endpoints that send email/Telegram messages or mutate connected accounts until their destination and side effects are confirmed.
 - Confirm the configured `ENCRYPTION_KEY` and legacy token migration/reconnection plan before any production rollout.
 
+
+
+## Latest isolated-branch fixes
+
+- Updated the Telegram test endpoint to use the authenticated admin identity rather than a shared `test_user` value.
+- Removed the unsupported GPT-5.5 branding from the Worker-generated logo and package description.
+- Replaced the absolute-accuracy prompt instruction with a requirement to aim for accuracy while communicating uncertainty and limitations.
+- Added regression assertions for these three conditions. These assertions have been committed; the CI result for this latest commit has not yet been observed, so they are not reported as executed/passing yet.
