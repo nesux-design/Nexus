@@ -2881,7 +2881,7 @@ async function generateDeepThinking(query, context) {
 
 USER QUERY: "\${query}"
 \${context ? \`RELEVANT CONVERSATION CONTEXT: \${context.substring(0, 500)}\` : ""}\`;
-  const messages = [{ role: "user", content: prompt }];  const messages = [{ role: "user", content: prompt }];
+  const messages = [{ role: "user", content: prompt }];
   try {
     const aiResult = await callGeminiOrGroq(prompt, messages, {
       temperature: 0.4,
@@ -5774,7 +5774,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
       const gen = quantumStreamGenerator(messages, finalPrompt);
       fullResponse = await quantumStreaming(gen, ultra, mode, { intent: decision.intent, sources: streamSources }, async (answerText) => {
         const trimmedMessage = String(message || "").trim();
-        const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye[.!?\s]*$/i.test(trimmedMessage);
+        const isSmallTalk = /^(?:hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedMessage);
         const relatedQuestions = trimmedMessage.length > 30 && !isSmallTalk
           ? await generateRelatedQuestions(env2, message, answerText)
           : [];
