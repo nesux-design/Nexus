@@ -108,6 +108,10 @@ assert.doesNotMatch(canvaOAuthCallback, /X-User-ID|test_user|url\.toString\(\)|c
 assert.match(canvaOAuthCallback, /await env2\.KV\.delete\("oauth_state:" \+ state\)/, "Canva OAuth state must be consumed after validation.");
 assert.match(genericOAuthCallback, /await env2\.KV\.delete\("oauth_code_verifier:" \+ state\)/, "Generic OAuth PKCE verifier must be consumed after lookup.");
 
+assert.match(genericOAuthCallback, /const integrationStored = await storeIntegration[\s\S]*?if \(!integrationStored\?\.success\)/, "Generic OAuth must not report success when secure token storage fails.");
+assert.match(standardOAuthCallback, /const integrationStored = await storeIntegration[\s\S]*?if \(!integrationStored\?\.success\)/, "Standard OAuth must not report success when secure token storage fails.");
+assert.match(canvaOAuthCallback, /const integrationStored = await storeIntegration[\s\S]*?if \(!integrationStored\?\.success\)/, "Canva OAuth must not report success when secure token storage fails.");
+
 
 const storeIntegrationSection = section("async function storeIntegration(", "__name(storeIntegration");
 assert.match(storeIntegrationSection, /tokenData\.access_token \? await encryptSecret\(env2, tokenData\.access_token\)/, "New integration access tokens must be encrypted before storage.");
