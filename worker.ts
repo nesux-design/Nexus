@@ -7084,6 +7084,17 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
   const mcpDecls = mcpPack.decls || [];
   const mcpOpenAI = typeof mcpToolsToOpenAITools === "function" ? mcpToolsToOpenAITools(mcpPack.tools || []) : [];
   const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI);
+  // Function names are sanitized for model APIs, so parseMcpFunctionName cannot
+  // always reconstruct the original connector/tool names (underscores can be
+  // ambiguous). Prefer the per-request map generated from the live MCP catalog.
+  if (resolved?.action === "execute_mcp" && resolved.mcpTool && mcpPack.nameMap?.[resolved.mcpTool]) {
+    const exactMcpTarget = mcpPack.nameMap[resolved.mcpTool];
+    resolved.args = {
+      ...(resolved.args || {}),
+      connector: exactMcpTarget.connector,
+      tool: exactMcpTarget.tool
+    };
+  }
   const pluginBlock = typeof formatPluginsForThinking === "function" ? formatPluginsForThinking(connected_tools) : "";
   const reasoning = [resolved.reasoning, pluginBlock].filter(Boolean).join("\n\n");
   let matched = null;
