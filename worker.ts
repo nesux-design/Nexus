@@ -2877,15 +2877,15 @@ __name(multiStageReasoning, "multiStageReasoning");
 __name2(multiStageReasoning, "multiStageReasoning");
 __name22(multiStageReasoning, "multiStageReasoning");
 async function generateDeepThinking(query, context) {
-  const prompt = \`Write a concise, user-facing rationale summary for an AI assistant. Do not reveal private chain-of-thought or hidden deliberation. In 1–3 short sentences, state the high-level approach, important assumptions, or checks that are useful for the user to understand. Do not invent checks or claim tools were used unless the supplied context supports that. Do not answer the user's question here; the final answer is generated separately.
+  const prompt = `Write a concise, user-facing rationale summary for an AI assistant. Do not reveal private chain-of-thought or hidden deliberation. In 1–3 short sentences, state the high-level approach, important assumptions, or checks that are useful for the user to understand. Do not invent checks or claim tools were used unless the supplied context supports that. Do not answer the user's question here; the final answer is generated separately.
 
-USER QUERY: "\${query}"
-\${context ? \`RELEVANT CONVERSATION CONTEXT: \${context.substring(0, 500)}\` : ""}\`;
+USER QUERY: "${query}"
+${context ? `RELEVANT CONVERSATION CONTEXT: ${context.substring(0, 500)}` : ""}`;
   const messages = [{ role: "user", content: prompt }];
   try {
     const aiResult = await callGeminiOrGroq(prompt, messages, {
-      temperature: 0.4,
-      maxTokens: 3e3,
+      temperature: 0.3,
+      maxTokens: 240,
       useWebSearch: false,
       timeout: 14e3,
       functionName: "generateDeepThinking"
