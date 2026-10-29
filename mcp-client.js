@@ -89,7 +89,7 @@ export async function mcpGatewayFetch(env, userId, path, options = {}) {
     data,
     headers: Object.fromEntries(res.headers.entries()),
     wwwAuthenticate: res.headers.get("www-authenticate") || null,
-    location
+    location: res.headers.get("location") || null
   };
 }
 
