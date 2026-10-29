@@ -1289,6 +1289,13 @@ __name(getCapabilitiesSection, "getCapabilitiesSection");
 function getMasterPrompt() {
   return `You are NEXUS, an AI assistant created by Akhil Jaiswal. Use the model providers, search systems, memory, and tools actually available in this deployment. Do not claim to be ChatGPT, Claude, or a specific proprietary model, and do not claim equivalent capabilities without evidence. Aim for accurate, useful, production-quality answers, but state uncertainty and limitations honestly.
 
+Answer formation (ChatGPT-class):
+- Lead with a direct answer in 1–3 sentences when the user asked a concrete question.
+- For multi-part or how-to requests, use clear markdown structure (short headings, bullets, numbered steps).
+- Prefer scannable layout over long walls of text; keep paragraphs short.
+- When tools/search/MCP data was used, ground claims in that data and do not invent results.
+- End substantial answers ready for follow-ups; the system may attach related questions separately.
+
 When asked about your name "NEXUS":
 - Tell them it stands for Neural Experience Xtended Unified System
 - Explain what each word means in a natural, inspiring way
@@ -5083,13 +5090,25 @@ Respond ONLY with a JSON array of 3 strings, nothing else. Example: ["Follow up 
     });
     const parsed = tryParseJSON(result.response);
     if (Array.isArray(parsed)) {
-      return parsed.slice(0, 3).map((q) => String(q)).filter(Boolean);
+      const qs = parsed.slice(0, 3).map((q) => String(q)).filter(Boolean);
+      if (qs.length) return qs;
     }
-    return [];
+    return heuristicRelatedQuestions(query, responseText);
   } catch (e) {
     console.error("generateRelatedQuestions error:", e.message);
-    return [];
+    return heuristicRelatedQuestions(query, responseText);
   }
+}
+function heuristicRelatedQuestions(query, responseText) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const base = q.length > 80 ? q.slice(0, 77) + "..." : q;
+  const out = [
+    `Can you explain more about: ${base}?`,
+    `What are practical next steps related to this?`,
+    `Are there common mistakes or edge cases I should know?`
+  ];
+  return out;
 }
 __name(generateRelatedQuestions, "generateRelatedQuestions");
 function tryParseJSON(text) {
@@ -5232,7 +5251,7 @@ ${response}` }], false);
   let relatedQuestions = [];
   const trimmedQuery = String(query || "").trim();
   const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedQuery);
-  if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
+  if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 12 && !isSmallTalk)) {
     try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
   const normalizedSources = normalizeWebSources(webSources);
@@ -8047,7 +8066,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     }
   }
   const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova"];
-  const modelPreference = allowedModelPreferences.includes(body.model) ? body.model : "auto";
+  const requestedModel = body.model || body.provider || body.modelPreference || "auto";
+  const modelPreference = allowedModelPreferences.includes(requestedModel) ? requestedModel : "auto";
   const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true, modelPreference: modelPreference === "auto" ? undefined : modelPreference });
   await addMessage(env2, ip, auth.userId, sessionId, message, response.response);
   await saveToVectorDB(env2, auth.userId, message, { response: response.response?.substring(0, 500), type: "chat", intent: thinking.action });
