@@ -814,12 +814,15 @@ async function handleGenericOAuthCallback(env2, request, provider) {
   if (!tokenData.access_token) {
     return jsonResponse({ error: "Failed to get token" }, 400);
   }
-  await storeIntegration(env2, userId, provider, {
+  const integrationStored = await storeIntegration(env2, userId, provider, {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
     config: {}
   });
+  if (!integrationStored?.success) {
+    return jsonResponse({ error: "Integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration." }, 500);
+  }
   trackEvent(env2, "integration_connected", { userId, model: provider, status: "ok" });
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=${provider}&status=connected&userId=${userId}`;
   return new Response(null, { status: 302, headers: { "Location": redirectUrl, ...CORS_HEADERS } });
@@ -935,12 +938,15 @@ async function handleCanvaOAuthCallback(env2, request) {
   } catch (e) {
     console.log("\u26A0\uFE0F Canva designs fetch failed:", e.message);
   }
-  await storeIntegration(env2, userId, "canva", {
+  const integrationStored = await storeIntegration(env2, userId, "canva", {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
     config: configData
   });
+  if (!integrationStored?.success) {
+    return jsonResponse({ error: "Canva integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration." }, 500);
+  }
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=canva&status=connected&userId=${userId}`;
   return new Response(null, {
     status: 302,
@@ -1000,13 +1006,16 @@ async function handleStandardOAuthCallback(env2, request, provider) {
     return jsonResponse({ error: "Failed to get token" }, 400);
   }
   const configData = {};
-  await storeIntegration(env2, userId, provider, {
+  const integrationStored = await storeIntegration(env2, userId, provider, {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
     scope: tokenData.scope || (OAUTH_CONFIG[provider] && OAUTH_CONFIG[provider].scopes) || "",
     config: configData
   });
+  if (!integrationStored?.success) {
+    return jsonResponse({ error: "Integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration." }, 500);
+  }
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=${provider}&status=connected&userId=${userId}`;
   return new Response(null, {
     status: 302,
