@@ -4455,9 +4455,20 @@ async function executePluginFull(env2, auth, body) {
   if (!integration) {
     return { error: `${app} not connected. Please connect first.` };
   }
-  const accessToken = await decryptSecret(env2, accessToken);
+  const accessToken = await decryptSecret(env2, integration.access_token);
   if (!accessToken) {
     return { error: `Could not decrypt the ${app} integration token. Verify ENCRYPTION_KEY or reconnect this integration.` };
+  }
+  if (integration.access_token && !String(integration.access_token).startsWith("enc:") &&
+      typeof env2.ENCRYPTION_KEY === "string" && env2.ENCRYPTION_KEY.trim().length >= 32) {
+    try {
+      const encryptedAccessToken = await encryptSecret(env2, integration.access_token);
+      await env2.DB.prepare(
+        "UPDATE user_integrations SET access_token = ? WHERE user_id = ? AND app_name = ?"
+      ).bind(encryptedAccessToken, auth.userId, app).run();
+    } catch (migrationError) {
+      console.error("Direct plugin token migration deferred; verify ENCRYPTION_KEY configuration.");
+    }
   }
   let result;
   try {
