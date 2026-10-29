@@ -1,0 +1,27 @@
+name: Apply master prompt batch4
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_master_prompt_batch4.py'
+      - '.github/workflows/apply-master-prompt-batch4.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_master_prompt_batch4.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/AI-UPGRADE-AUDIT.md
+          git diff --staged --quiet || git commit -m "feat: tool honesty + thinking privacy (batch4)"
+          git push origin HEAD:main
