@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 
 const worker = readFileSync(new URL("../worker.ts", import.meta.url), "utf8");
 const mcpClient = readFileSync(new URL("../mcp-client.js", import.meta.url), "utf8");
+assert.match(
+  mcpClient,
+  /const h = \{\s*\.\.\.headers,[\s\S]*?"X-Nexus-User-Id": String\(userId\),\s*"X-Nexus-Signature": signature/,
+  "Caller-supplied headers must not be able to override the signed MCP user identity or HMAC signature."
+);
 const packageJson = readFileSync(new URL("../package.json", import.meta.url), "utf8");
 
 function section(startMarker, endMarker) {
