@@ -3045,20 +3045,20 @@ async function quantumAIOrchestrator(prompt, messages, options) {
   const enableWebSearch = config.webSearch !== false;
   const priorityMode = config.priority || "balanced";
   const taskType = config.taskType || "general";
-  const supportedModels = ["gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const supportedModels = ["gemini", "groq", "mimo", "cerebras", "sambanova", "openrouter"];
   const preferredModel = supportedModels.includes(config.modelPreference) ? config.modelPreference : null;
   let modelChain;
   if (taskType === "code" || priorityMode === "speed") {
-    modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova"];
+    modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova", "openrouter"];
   } else if (taskType === "creative") {
-    modelChain = ["mimo", "gemini", "groq", "sambanova", "cerebras"];
+    modelChain = ["mimo", "gemini", "groq", "sambanova", "cerebras", "openrouter"];
   } else if (priorityMode === "quality") {
-    modelChain = ["gemini", "groq", "mimo", "sambanova", "cerebras"];
+    modelChain = ["gemini", "groq", "mimo", "sambanova", "cerebras", "openrouter"];
   } else {
-    modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova"];
+    modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova", "openrouter"];
   }
   if (preferredModel) {
-    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel)];
+    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel), "openrouter"];
   }
   if (priorityMode === "speed" && !preferredModel) {
     const parallelModels = modelChain.slice(0, 2);
@@ -5486,7 +5486,15 @@ async function quantumStreaming(gen, stream, mode, metadata, onComplete) {
       totalChunks: chunks.length,
       ...(metadata || {}),
       ...completionMetadata,
-      presentation: buildPresentationHint(fullResponse, sourceList, null, completionMetadata.relatedQuestions || [])
+      sources: sourceList.length ? sourceList : (completionMetadata.sources || (metadata && metadata.sources) || []),
+      relatedQuestions: completionMetadata.relatedQuestions || (metadata && metadata.relatedQuestions) || [],
+      searchPerformed: !!(completionMetadata.searchPerformed || (metadata && metadata.searchPerformed) || sourceList.length),
+      presentation: buildPresentationHint(
+        fullResponse,
+        sourceList.length ? sourceList : (completionMetadata.sources || []),
+        completionMetadata.artifact || null,
+        completionMetadata.relatedQuestions || []
+      )
     });
     return fullResponse;
   } catch (e) {
@@ -8065,7 +8073,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       return new Response(JSON.stringify({ analysis: visionResult.analysis, provider: visionResult.provider }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
   }
-  const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova", "openrouter"];
   const requestedModel = body.model || body.provider || body.modelPreference || "auto";
   const modelPreference = allowedModelPreferences.includes(requestedModel) ? requestedModel : "auto";
   const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true, modelPreference: modelPreference === "auto" ? undefined : modelPreference });
