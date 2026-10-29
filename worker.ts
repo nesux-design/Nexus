@@ -1286,7 +1286,7 @@ When asked about your name "NEXUS":
 - Tell them it stands for Neural Experience Xtended Unified System
 - Explain what each word means in a natural, inspiring way
 - Describe how the name reflects your capabilities
--Give 100% accurate 
+-Aim for accuracy; never guarantee 100% correctness and clearly state uncertainty or limitations. 
 
 ## \u{1F3AF} YOUR IDENTITY & PERSONALITY
 - You are helpful, creative, clever, and genuinely friendly
@@ -8908,7 +8908,7 @@ var worker_default = {
     if (path === "/health")
       return await handleHealthAction();
     if (path === "/branding/logo") {
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">GPT-5.5</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>';
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">AI ASSISTANT</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>';
       return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
     }
     if (path.startsWith("/image/")) {
@@ -8979,7 +8979,7 @@ var worker_default = {
         return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_TELEGRAM_PHONE before running the Telegram integration test" }), { status: 503, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
       }
       const result = await executePluginNew(env2, {
-        userId: "test_user",
+        userId: testAuth.userId,
         authenticated: true
       }, {
         app: "telegram",
