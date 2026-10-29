@@ -789,19 +789,20 @@ async function handleGenericOAuthCallback(env2, request, provider) {
   }
   if (!code)
     return jsonResponse({ error: "No code received" }, 400);
+  if (!state)
+    return jsonResponse({ error: "Missing state parameter" }, 400);
   const storedRaw = await env2.KV.get("oauth_state:" + state);
   if (!storedRaw)
     return jsonResponse({ error: "Invalid or expired state" }, 400);
-  let storedProvider, userId;
+  let parsedState;
   try {
-    const parsed = JSON.parse(storedRaw);
-    storedProvider = parsed.provider;
-    userId = parsed.userId;
+    parsedState = JSON.parse(storedRaw);
   } catch (e) {
-    storedProvider = storedRaw;
-    userId = "test_user";
+    return jsonResponse({ error: "Invalid state" }, 400);
   }
-  if (storedProvider !== provider)
+  const storedProvider = parsedState?.provider;
+  const userId = typeof parsedState?.userId === "string" ? parsedState.userId.trim() : "";
+  if (storedProvider !== provider || !userId)
     return jsonResponse({ error: "Invalid state" }, 400);
   await env2.KV.delete("oauth_state:" + state);
   const codeVerifier = await env2.KV.get("oauth_code_verifier:" + state);
@@ -1909,7 +1910,7 @@ async function storeIntegration(env2, userId, appName, tokenData) {
     const config = JSON.stringify(tokenData.config || {});
     const expiresAt = tokenData.expires_at || null;
     console.log(`\u{1F535} storeIntegration: id=${id}`);
-    console.log(`\u{1F535} storeIntegration: accessToken = ${accessToken ? accessToken.substring(0, 20) + "..." : "null"}`);
+    console.log(`\u{1F535} storeIntegration: accessToken = ${accessToken ? "present" : "null"}`);
     console.log(`\u{1F535} storeIntegration: sessionString = ${sessionString ? "present" : "null"}`);
     console.log(`\u{1F535} storeIntegration: Checking if ${appName} exists for user ${userId}`);
     const existing = await env2.DB.prepare(
@@ -2021,7 +2022,7 @@ async function getIntegration(env2, userId, appName) {
     ).bind(userId, appName).first();
     if (result) {
       console.log(`\u2705 getIntegration: Found ${appName} for user ${userId}`);
-      console.log(`\u{1F535} getIntegration: access_token = ${result.access_token ? result.access_token.substring(0, 20) + "..." : "null"}`);
+      console.log(`\u{1F535} getIntegration: access_token = ${result.access_token ? "present" : "null"}`);
       console.log(`\u{1F535} getIntegration: session_string = ${result.session_string ? "present" : "null"}`);
       console.log(`\u{1F535} getIntegration: status = ${result.status}`);
       if (result.config) {
@@ -8590,7 +8591,7 @@ __name(handlePluginDisconnect, "handlePluginDisconnect");
 __name2(handlePluginDisconnect, "handlePluginDisconnect");
 async function executePluginNew(env2, auth, body) {
   console.log(`\u{1F535} executePluginNew: START - User=${auth.userId}`);
-  console.log(`\u{1F535} executePluginNew: body = ${JSON.stringify(body)}`);
+  console.log("\u{1F535} executePluginNew: plugin request received (payload redacted)");
   const app = body.app;
   let action = body.pluginAction || body.tool || body.action;
   if (action === "execute_plugin" || action === "chat") {
@@ -8620,13 +8621,13 @@ async function executePluginNew(env2, auth, body) {
         console.log(`\u{1F535} executePluginNew: TELEGRAM action=${action}`);
         switch (action) {
           case "init":
-            console.log(`\u{1F535} executePluginNew: Calling telegramInit with phone=${params.phone}`);
+            console.log("\u{1F535} executePluginNew: Starting Telegram init (phone redacted)");
             result = await telegramInit(params.phone, auth.userId);
             break;
           case "verify":
-            console.log(`\u{1F535} executePluginNew: Calling telegramVerify with phone=${params.phone}, otp=${params.otp}`);
+            console.log("\u{1F535} executePluginNew: Starting Telegram verification (phone and OTP redacted)");
             result = await telegramVerify(params.phone, params.otp, auth.userId);
-            console.log(`\u{1F535} verify result: ${JSON.stringify(result)}`);
+            console.log(`\u{1F535} verify result: success=${Boolean(result?.success)}, session=${Boolean(result?.sessionString)}`);
             console.log(`\u{1F535} result.success = ${result?.success}`);
             console.log(`\u{1F535} result.sessionString = ${result?.sessionString ? "present" : "null"}`);
             if (result && result.success && result.sessionString) {
