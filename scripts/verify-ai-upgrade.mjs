@@ -27,6 +27,11 @@ const wrangler = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf
 assert.match(wrangler, /tag = "v2"/, "Keep the already-deployed Durable Object migration tag.");
 assert.doesNotMatch(wrangler, /deleted_classes\s*=\s*\["TimeMcpServer"\]/, "Do not re-apply a stale tombstone for a class absent from the migration history.");
 
+const canvasRoute = section('if (path.startsWith("/canvas/"))', 'if (path === "/api/test/plugins")');
+assert.match(canvasRoute, /"Content-Security-Policy":\s*"sandbox allow-scripts"/, "User-generated canvas HTML must be served from a sandboxed opaque origin.");
+assert.match(canvasRoute, /"X-Content-Type-Options":\s*"nosniff"/, "Canvas responses must disable MIME sniffing.");
+assert.match(canvasRoute, /"Referrer-Policy":\s*"no-referrer"/, "Canvas pages must not leak referrer URLs.");
+
 const pluginTest = section('if (path === "/api/test/plugins")', 'if (pathname === "/test-execute")');
 assert.match(pluginTest, /enhancedAuthenticate\(request,\s*env2\)/);
 assert.match(pluginTest, /!testAuth\.authenticated\s*\|\|\s*!isAdmin\(testAuth\.userId\)/, "Plugin test route must be admin-only.");
