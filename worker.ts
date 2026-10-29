@@ -5118,7 +5118,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
     const groqRawResult = await callGroqRaw(messages, reasoning.plan?.needsSearch || false);
     if (groqRawResult && groqRawResult.content) {
       aiResult = { response: groqRawResult.content, model: "groq-gpt-oss-120b" };
-      thinking = groqRawResult.reasoning || thinking;
+      // Keep provider-internal reasoning private; only return the concise user-facing rationale summary.
       if (groqRawResult.sources && groqRawResult.sources.length > 0) {
         webSources = normalizeWebSources([...webSources, ...groqRawResult.sources]);
       }
@@ -5737,7 +5737,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
     let fullResponse = "";
     try {
       const decision = await quantumSemanticDecision(message, context, null);
-      ultra.thinking("Detected: " + decision.intent + " (" + Math.round(decision.confidence * 100) + "%)");
+      ultra.thinking("Reviewing your request and preparing a response.");
       if (decision.intent === "reminder") {
         const reminderText = decision.args?.reminder_text || message;
         const reminderTime = decision.args?.time_text || message;
