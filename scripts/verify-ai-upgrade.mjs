@@ -108,4 +108,17 @@ assert.doesNotMatch(canvaOAuthCallback, /X-User-ID|test_user|url\.toString\(\)|c
 assert.match(canvaOAuthCallback, /await env2\.KV\.delete\("oauth_state:" \+ state\)/, "Canva OAuth state must be consumed after validation.");
 assert.match(genericOAuthCallback, /await env2\.KV\.delete\("oauth_code_verifier:" \+ state\)/, "Generic OAuth PKCE verifier must be consumed after lookup.");
 
+
+const storeIntegrationSection = section("async function storeIntegration(", "__name(storeIntegration");
+assert.match(storeIntegrationSection, /tokenData\.access_token \? await encryptSecret\(env2, tokenData\.access_token\)/, "New integration access tokens must be encrypted before storage.");
+assert.match(storeIntegrationSection, /tokenData\.refresh_token \? await encryptSecret\(env2, tokenData\.refresh_token\)/, "New integration refresh tokens must be encrypted before storage.");
+const refreshTokenSection = section("async function refreshOAuthToken(", "__name(refreshOAuthToken");
+assert.match(refreshTokenSection, /encryptSecret\(env2, data\.access_token\)/, "Refreshed access tokens must be encrypted before persistence.");
+const integrationReadSection = section("async function getIntegration(", "__name(getIntegration");
+assert.match(integrationReadSection, /result\.access_token = storedAccessToken \? await decryptSecret\(env2, storedAccessToken\)/, "Integration access tokens must be decrypted before API use.");
+assert.match(integrationReadSection, /needsTokenMigration/, "Legacy plaintext tokens should be eligible for best-effort migration when a valid key exists.");
+const fullPluginSection = section("async function executePluginFull(", "__name(executePluginFull");
+assert.match(fullPluginSection, /const accessToken = await decryptSecret\(env2, integration\.access_token\)/, "Direct plugin execution must decrypt stored tokens.");
+assert.doesNotMatch(fullPluginSection, /integration\.access_token/, "Direct plugin execution must not pass encrypted database values to provider APIs.");
+
 console.log("NEXUS upgrade static checks passed.");
