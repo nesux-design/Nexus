@@ -51,6 +51,14 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - The Telegram test endpoint still uses a hardcoded test phone number; it is admin-protected, but live execution should wait until a dedicated test account is configured.
 - Legacy plaintext secret compatibility in `decryptSecret` and all OAuth callback/state flows require additional review before deployment.
 
+## Additional security review fixes (29 October 2026)
+
+- Generic OAuth callbacks now reject missing, malformed, mismatched, or ownerless state records; malformed state no longer falls back to the shared `test_user` identity.
+- Integration access-token prefixes are no longer printed to logs.
+- Plugin execution no longer logs the full request body, Telegram phone number, OTP, or the complete verification result that may contain a session string.
+- Added static regression assertions for the OAuth-state validation and sensitive-log redaction.
+- These are source-level safeguards. They do not replace live OAuth/provider tests or a review of existing plaintext integration records.
+
 ## Follow-up response-pipeline fixes (29 October 2026)
 
 - The normal chat JSON response now passes through the existing presentation hints, normalized source list, contextual follow-up questions, artifact metadata, search flag, confidence, and language. Previously, quantumResponse created these fields but handleChatAction discarded most of them.
