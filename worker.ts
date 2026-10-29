@@ -806,6 +806,7 @@ async function handleGenericOAuthCallback(env2, request, provider) {
     return jsonResponse({ error: "Invalid state" }, 400);
   await env2.KV.delete("oauth_state:" + state);
   const codeVerifier = await env2.KV.get("oauth_code_verifier:" + state);
+  await env2.KV.delete("oauth_code_verifier:" + state);
   const tokenData = await exchangeGenericOAuthCode(provider, code, codeVerifier);
   if (tokenData.error) {
     return jsonResponse({ error: `Token exchange failed: ${tokenData.error}`, details: tokenData.details }, 400);
@@ -876,11 +877,7 @@ async function handleCanvaOAuthCallback(env2, request) {
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
-  console.log(`\u{1F527} Canva Callback: full URL=${url.toString()}`);
-  console.log(`\u{1F527} Canva Callback: code=${code}`);
-  console.log(`\u{1F527} Canva Callback: state=${state}`);
-  console.log(`\u{1F527} Canva Callback: error=${error}`);
-  console.log(`\u{1F527} Canva Callback: errorDescription=${errorDescription}`);
+  console.log("Canva OAuth callback received");
   if (error) {
     return jsonResponse({
       error: `Canva OAuth error: ${error}`,
@@ -894,22 +891,26 @@ async function handleCanvaOAuthCallback(env2, request) {
       redirectUri: OAUTH_CONFIG.canva.redirectUri
     }, 400);
   }
+  if (!state) {
+    return jsonResponse({ error: "Missing state parameter" }, 400);
+  }
   const stored = await env2.KV.get("oauth_state:" + state);
-  let userId = request.headers.get("X-User-ID") || "test_user";
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (parsed && parsed.userId) userId = parsed.userId;
-      if (parsed && parsed.provider && parsed.provider !== "canva") {
-        return jsonResponse({ error: "Invalid state" }, 400);
-      }
-    } catch {
-      if (stored !== "canva") return jsonResponse({ error: "Invalid state" }, 400);
-    }
-  } else {
+  if (!stored) {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  let parsedState;
+  try {
+    parsedState = JSON.parse(stored);
+  } catch {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  const userId = typeof parsedState?.userId === "string" ? parsedState.userId.trim() : "";
+  if (parsedState?.provider !== "canva" || !userId) {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
   const codeVerifier = await env2.KV.get("oauth_code_verifier:" + state);
+  await env2.KV.delete("oauth_state:" + state);
+  await env2.KV.delete("oauth_code_verifier:" + state);
   const tokenData = await exchangeCanvaCode(code, codeVerifier);
   if (!tokenData.access_token) {
     return jsonResponse({ error: "Failed to get token" }, 400);
@@ -952,29 +953,25 @@ async function handleStandardOAuthCallback(env2, request, provider) {
   if (!code) {
     return jsonResponse({ error: "No code" }, 400);
   }
+  if (!state) {
+    return jsonResponse({ error: "Missing state parameter" }, 400);
+  }
   const stored = await env2.KV.get("oauth_state:" + state);
-  let storedProvider = provider;
-  let userId = request.headers.get("X-User-ID") || "test_user";
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (parsed && parsed.provider) {
-        storedProvider = parsed.provider;
-        if (parsed.userId) userId = parsed.userId;
-      } else if (stored !== provider) {
-        return jsonResponse({ error: "Invalid state" }, 400);
-      }
-    } catch {
-      if (stored !== provider) {
-        return jsonResponse({ error: "Invalid state" }, 400);
-      }
-    }
-  } else {
+  if (!stored) {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
-  if (storedProvider !== provider) {
+  let parsedState;
+  try {
+    parsedState = JSON.parse(stored);
+  } catch {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
+  const storedProvider = parsedState?.provider;
+  const userId = typeof parsedState?.userId === "string" ? parsedState.userId.trim() : "";
+  if (storedProvider !== provider || !userId) {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  await env2.KV.delete("oauth_state:" + state);
   let tokenData;
   switch (provider) {
     case "figma":
