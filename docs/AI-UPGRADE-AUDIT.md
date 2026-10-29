@@ -61,7 +61,8 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 
 ## Verification after these changes
 
-- GitHub Actions run for the upgrade branch: 40801700629 — successful for dependency install, high-severity npm audit, static regression tests, production dependency audit (high severity), and local esbuild bundle validation.
+- GitHub Actions runs for the latest code revision: 40801902114 (push) and 40801903903 (pull request) — successful for dependency install, high-severity npm audit, static regression tests, production dependency audit (high severity), and local esbuild bundle validation.
 - TypeScript compilation remains informational / non-blocking in CI and still reports legacy type errors. This is not a clean TypeScript typecheck claim.
+- The current npm audit reports one moderate advisory in the transitive @hono/node-server dependency (GHSA-rmxm-3fg6-px4f); the high-severity audit threshold passes, but this is not a zero-vulnerability dependency report.
 - These changes are committed only to nexus-a1-ai-upgrade-2026-10 and its existing draft PR. The main branch and production nexus-a1 Worker have not been changed or deployed.
 - The Worker can return richer metadata, but a separate frontend must render interactive cards, charts, diagrams, source panels, and other visual UI. This repository contains the backend Worker, not that frontend implementation.
