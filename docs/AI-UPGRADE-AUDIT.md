@@ -4,7 +4,7 @@
 
 - Source base: \`main\` at commit \`92717d90beda83b30823b8ef8faf02b4ec61e4b2\` (27 October 2026).
 - Work branch: \`nexus-a1-ai-upgrade-2026-10\`.
-- No production Worker deployment is performed by this branch.
+- No production Worker deployment is performed by this branch. Cloudflare Git integration does automatically publish commit/branch preview URLs for this branch; those previews must not be treated as production, and their KV/D1/service bindings must be verified before testing because the Wrangler config references existing resources.
 - This repository is primarily a Cloudflare Worker/backend. Rich UI rendering for cards, charts, maps, responsive chat layouts, and animations must be implemented in the separate frontend repository/app; Worker response metadata alone cannot render those UI components.
 
 ## Findings addressed in this branch
