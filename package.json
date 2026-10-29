@@ -1,7 +1,7 @@
 {
   "name": "nexus-gpt-worker",
   "version": "6.0.0",
-  "description": "NEXUS GPT-5.5 Level AI Assistant - Cloudflare Worker with Smart Web Search",
+  "description": "NEXUS A1 AI Assistant — Cloudflare Worker with smart web search and MCP integrations",
   "main": "worker.ts",
   "scripts": {
     "deploy": "wrangler deploy",
