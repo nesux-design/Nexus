@@ -145,4 +145,7 @@ assert.ok(
 assert.match(legacyIntegrationConnect, /const tokenStored = await storeIntegration\(env2, auth\.userId, app, \{ access_token: token \}\)/, "Direct-token integration connect must inspect secure storage results.");
 assert.match(legacyIntegrationConnect, /if \(!tokenStored\?\.success\)/, "Direct-token integration connect must not report success when persistence fails.");
 
+
+assert.match(worker, /modelPreference: modelPreference === "auto" \? undefined : modelPreference/, "Validated chat model preference must reach the answer pipeline.");
+assert.match(worker, /modelChain = \[preferredModel, \.\.\.modelChain\.filter/, "Selected provider must be tried first while preserving fallbacks.");
 console.log("NEXUS upgrade static checks passed.");
