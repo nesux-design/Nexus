@@ -2,9 +2,23 @@ name: Restore mcp-client.js
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_branch_write:
+        description: "Type yes only after reviewing the changes; this workflow writes to the selected non-main branch."
+        required: true
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
 
 jobs:
+  skip_automatic_push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: No-op for automatic push events
+        run: echo "Manual-only workflow; no write operation performed for push events."
   restore:
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.confirm_branch_write == 'yes'
     runs-on: ubuntu-latest
     permissions:
       contents: write

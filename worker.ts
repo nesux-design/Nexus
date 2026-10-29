@@ -22,6 +22,9 @@ interface Env {
   // Core secrets
   ENCRYPTION_KEY: string;
   NEXUS_INTERNAL_AUTH_SECRET?: string;
+  NEXUS_LEGACY_API_KEY?: string;
+  NEXUS_TEST_EMAIL_TO?: string;
+  NEXUS_TEST_TELEGRAM_PHONE?: string;
   MCP_SERVER_URL?: string;
 
   // Direct model provider API keys (comma-separated lists)
@@ -108,7 +111,8 @@ var __defProp = Object.defineProperty;
 var __name = (target: any, value: string) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-import { env } from "cloudflare:workers";
+import { env as cloudflareEnv } from "cloudflare:workers";
+const env = cloudflareEnv as unknown as Env;
 import {
   getPluginToolsForUser,
   formatPluginsForThinking,
@@ -137,7 +141,14 @@ import {
   buildMcpThinkingSteps,
   buildMcpAnswerPrompt,
   listMcpGatewayCatalog,
-  MCP_GATEWAY_CONNECTORS
+  MCP_GATEWAY_CONNECTORS,
+  listCustomMcps,
+  addCustomMcp,
+  deleteCustomMcp,
+  getCustomMcpOAuthStart,
+  listCustomMcpTools,
+  callCustomMcpTool,
+  setCustomMcpCredentials
 } from "./mcp-client.js";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
@@ -168,7 +179,6 @@ var TODAY = CURRENT_DATE.full;
 var CONFIG = {
   APP_NAME: "NEXUS",
   CREATOR: "Akhil Jaiswal",
-  API_KEY: "akhil-123",
   UPI_ID: "jaiswalanushi8@oksbi",
   AMAZON_AFFILIATE_ID: "akhilgpt-21",
   ADMIN_IDS: ["admin", "akhil", "jaiswalanushi08", "8681361916"],
@@ -644,7 +654,7 @@ __name(generateOAuthUrl, "generateOAuthUrl");
 __name2(generateOAuthUrl, "generateOAuthUrl");
 async function exchangeFigmaCode(code) {
   const config = OAUTH_CONFIG.figma;
-  console.log(`\u{1F527} exchangeFigmaCode: code=${code}`);
+  console.log("exchangeFigmaCode: exchanging authorization code");
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5e3);
@@ -759,8 +769,9 @@ async function handleGenericOAuthInit(env2, request, provider) {
   const config = OAUTH_CONFIG[provider];
   if (!config)
     return jsonResponse({ error: `Unknown provider: ${provider}` }, 400);
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider, userId }), { expirationTtl: 300 });
   let extra = "";
@@ -785,22 +796,24 @@ async function handleGenericOAuthCallback(env2, request, provider) {
   }
   if (!code)
     return jsonResponse({ error: "No code received" }, 400);
+  if (!state)
+    return jsonResponse({ error: "Missing state parameter" }, 400);
   const storedRaw = await env2.KV.get("oauth_state:" + state);
   if (!storedRaw)
     return jsonResponse({ error: "Invalid or expired state" }, 400);
-  let storedProvider, userId;
+  let parsedState;
   try {
-    const parsed = JSON.parse(storedRaw);
-    storedProvider = parsed.provider;
-    userId = parsed.userId;
+    parsedState = JSON.parse(storedRaw);
   } catch (e) {
-    storedProvider = storedRaw;
-    userId = "test_user";
+    return jsonResponse({ error: "Invalid state" }, 400);
   }
-  if (storedProvider !== provider)
+  const storedProvider = parsedState?.provider;
+  const userId = typeof parsedState?.userId === "string" ? parsedState.userId.trim() : "";
+  if (storedProvider !== provider || !userId)
     return jsonResponse({ error: "Invalid state" }, 400);
   await env2.KV.delete("oauth_state:" + state);
   const codeVerifier = await env2.KV.get("oauth_code_verifier:" + state);
+  await env2.KV.delete("oauth_code_verifier:" + state);
   const tokenData = await exchangeGenericOAuthCode(provider, code, codeVerifier);
   if (tokenData.error) {
     return jsonResponse({ error: `Token exchange failed: ${tokenData.error}`, details: tokenData.details }, 400);
@@ -808,12 +821,15 @@ async function handleGenericOAuthCallback(env2, request, provider) {
   if (!tokenData.access_token) {
     return jsonResponse({ error: "Failed to get token" }, 400);
   }
-  await storeIntegration(env2, userId, provider, {
+  const integrationStored = await storeIntegration(env2, userId, provider, {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
     config: {}
   });
+  if (!integrationStored?.success) {
+    return jsonResponse({ error: "Integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration." }, 500);
+  }
   trackEvent(env2, "integration_connected", { userId, model: provider, status: "ok" });
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=${provider}&status=connected&userId=${userId}`;
   return new Response(null, { status: 302, headers: { "Location": redirectUrl, ...CORS_HEADERS } });
@@ -821,8 +837,9 @@ async function handleGenericOAuthCallback(env2, request, provider) {
 __name(handleGenericOAuthCallback, "handleGenericOAuthCallback");
 __name2(handleGenericOAuthCallback, "handleGenericOAuthCallback");
 async function handleFigmaOAuth(env2, request) {
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "figma", userId }), { expirationTtl: 300 });
   return redirect(generateOAuthUrl("figma", state));
@@ -835,8 +852,9 @@ async function handleFigmaOAuthCallback(env2, request) {
 __name(handleFigmaOAuthCallback, "handleFigmaOAuthCallback");
 __name2(handleFigmaOAuthCallback, "handleFigmaOAuthCallback");
 async function handleDiscordOAuth(env2, request) {
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "discord", userId }), { expirationTtl: 300 });
   return redirect(generateOAuthUrl("discord", state));
@@ -849,8 +867,9 @@ async function handleDiscordOAuthCallback(env2, request) {
 __name(handleDiscordOAuthCallback, "handleDiscordOAuthCallback");
 __name2(handleDiscordOAuthCallback, "handleDiscordOAuthCallback");
 async function handleCanvaOAuth(env2, request) {
-  const url = new URL(request.url);
-  const userId = request.headers.get("X-User-ID") || url.searchParams.get("userId") || "test_user";
+  const auth = await enhancedAuthenticate(request, env2);
+  if (!auth.authenticated) return jsonResponse({ error: "Authentication required" }, 401);
+  const userId = auth.userId;
   const state = generatenewId();
   await env2.KV.put("oauth_state:" + state, JSON.stringify({ provider: "canva", userId }), { expirationTtl: 300 });
   const codeVerifier = generateCodeVerifier();
@@ -868,11 +887,7 @@ async function handleCanvaOAuthCallback(env2, request) {
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
-  console.log(`\u{1F527} Canva Callback: full URL=${url.toString()}`);
-  console.log(`\u{1F527} Canva Callback: code=${code}`);
-  console.log(`\u{1F527} Canva Callback: state=${state}`);
-  console.log(`\u{1F527} Canva Callback: error=${error}`);
-  console.log(`\u{1F527} Canva Callback: errorDescription=${errorDescription}`);
+  console.log("Canva OAuth callback received");
   if (error) {
     return jsonResponse({
       error: `Canva OAuth error: ${error}`,
@@ -886,22 +901,29 @@ async function handleCanvaOAuthCallback(env2, request) {
       redirectUri: OAUTH_CONFIG.canva.redirectUri
     }, 400);
   }
+  if (!state) {
+    return jsonResponse({ error: "Missing state parameter" }, 400);
+  }
+  if (!state) {
+    return jsonResponse({ error: "Missing state parameter" }, 400);
+  }
   const stored = await env2.KV.get("oauth_state:" + state);
-  let userId = request.headers.get("X-User-ID") || "test_user";
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (parsed && parsed.userId) userId = parsed.userId;
-      if (parsed && parsed.provider && parsed.provider !== "canva") {
-        return jsonResponse({ error: "Invalid state" }, 400);
-      }
-    } catch {
-      if (stored !== "canva") return jsonResponse({ error: "Invalid state" }, 400);
-    }
-  } else {
+  if (!stored) {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  let parsedState;
+  try {
+    parsedState = JSON.parse(stored);
+  } catch {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  const userId = typeof parsedState?.userId === "string" ? parsedState.userId.trim() : "";
+  if (parsedState?.provider !== "canva" || !userId) {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
   const codeVerifier = await env2.KV.get("oauth_code_verifier:" + state);
+  await env2.KV.delete("oauth_state:" + state);
+  await env2.KV.delete("oauth_code_verifier:" + state);
   const tokenData = await exchangeCanvaCode(code, codeVerifier);
   if (!tokenData.access_token) {
     return jsonResponse({ error: "Failed to get token" }, 400);
@@ -923,12 +945,15 @@ async function handleCanvaOAuthCallback(env2, request) {
   } catch (e) {
     console.log("\u26A0\uFE0F Canva designs fetch failed:", e.message);
   }
-  await storeIntegration(env2, userId, "canva", {
+  const integrationStored = await storeIntegration(env2, userId, "canva", {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
     config: configData
   });
+  if (!integrationStored?.success) {
+    return jsonResponse({ error: "Canva integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration." }, 500);
+  }
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=canva&status=connected&userId=${userId}`;
   return new Response(null, {
     status: 302,
@@ -944,29 +969,25 @@ async function handleStandardOAuthCallback(env2, request, provider) {
   if (!code) {
     return jsonResponse({ error: "No code" }, 400);
   }
+  if (!state) {
+    return jsonResponse({ error: "Missing state parameter" }, 400);
+  }
   const stored = await env2.KV.get("oauth_state:" + state);
-  let storedProvider = provider;
-  let userId = request.headers.get("X-User-ID") || "test_user";
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (parsed && parsed.provider) {
-        storedProvider = parsed.provider;
-        if (parsed.userId) userId = parsed.userId;
-      } else if (stored !== provider) {
-        return jsonResponse({ error: "Invalid state" }, 400);
-      }
-    } catch {
-      if (stored !== provider) {
-        return jsonResponse({ error: "Invalid state" }, 400);
-      }
-    }
-  } else {
+  if (!stored) {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
-  if (storedProvider !== provider) {
+  let parsedState;
+  try {
+    parsedState = JSON.parse(stored);
+  } catch {
     return jsonResponse({ error: "Invalid state" }, 400);
   }
+  const storedProvider = parsedState?.provider;
+  const userId = typeof parsedState?.userId === "string" ? parsedState.userId.trim() : "";
+  if (storedProvider !== provider || !userId) {
+    return jsonResponse({ error: "Invalid state" }, 400);
+  }
+  await env2.KV.delete("oauth_state:" + state);
   let tokenData;
   switch (provider) {
     case "figma":
@@ -992,13 +1013,16 @@ async function handleStandardOAuthCallback(env2, request, provider) {
     return jsonResponse({ error: "Failed to get token" }, 400);
   }
   const configData = {};
-  await storeIntegration(env2, userId, provider, {
+  const integrationStored = await storeIntegration(env2, userId, provider, {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_at: Date.now() + (tokenData.expires_in || 3600) * 1e3,
     scope: tokenData.scope || (OAUTH_CONFIG[provider] && OAUTH_CONFIG[provider].scopes) || "",
     config: configData
   });
+  if (!integrationStored?.success) {
+    return jsonResponse({ error: "Integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration." }, 500);
+  }
   const redirectUrl = `${FRONTEND_URL}/dashboard?provider=${provider}&status=connected&userId=${userId}`;
   return new Response(null, {
     status: 302,
@@ -1095,7 +1119,7 @@ async function telegramGetMe(sessionString) {
 __name(telegramGetMe, "telegramGetMe");
 __name2(telegramGetMe, "telegramGetMe");
 function generatenewId() {
-  return Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 10);
+  return crypto.randomUUID();
 }
 __name(generatenewId, "generatenewId");
 __name2(generatenewId, "generatenewId");
@@ -1244,7 +1268,7 @@ var FEATURE_CAPABILITIES = [
   "Can suggest 3 relevant follow-up questions after answering, when asked to",
   "Can explicitly save facts the user asks it to remember (\"remember that...\"), and will recall them reliably in every future conversation, not just guess from similarity search",
   "When search sources are used, cites them with numbered markers like [1], [2] matching a source list, so claims are traceable",
-  "Can show its step-by-step reasoning/thinking process when explicitly requested, not just the final answer"
+  "Can provide concise reasoning summaries, assumptions, calculations, and verification steps without exposing private chain-of-thought"
   // \u{1F447} Naya feature add karte waqt bas ek line yahan add karo \u2014 MASTER_PROMPT khud-ba-khud isse
   // uठा lega, kahin aur dhundhne/edit karne ki zaroorat nahi.
 ];
@@ -1263,24 +1287,30 @@ If the user asks what you can do, answer accurately based on this list \u2014 do
 }
 __name(getCapabilitiesSection, "getCapabilitiesSection");
 function getMasterPrompt() {
-  return `You are NEXUS, an advanced AI assistant created by Akhil Jaiswal. You operate at GPT-5.5 level with real-time web access via Google Search.Give accurate and 100% production grade answers.
+  return `You are NEXUS, an AI assistant created by Akhil Jaiswal. Use the model providers, search systems, memory, and tools actually available in this deployment. Do not claim to be ChatGPT, Claude, or a specific proprietary model, and do not claim equivalent capabilities without evidence. Aim for accurate, useful, production-quality answers, but state uncertainty and limitations honestly.
 
 When asked about your name "NEXUS":
 - Tell them it stands for Neural Experience Xtended Unified System
 - Explain what each word means in a natural, inspiring way
 - Describe how the name reflects your capabilities
--Give 100% accurate 
+-Aim for accuracy; never guarantee 100% correctness and clearly state uncertainty or limitations. 
 
 ## \u{1F3AF} YOUR IDENTITY & PERSONALITY
 - You are helpful, creative, clever, and genuinely friendly
 - You match the user's tone and language naturally
 - You remember context and reference previous exchanges
 - You admit when you don't know something rather than pretending
+- Lead with the direct answer; keep simple answers concise and expand only when the task benefits from detail.
+- Choose the response format that best fits the task: prose, steps, comparison table, code, checklist, or research summary. Do not force tables or excessive bullets into every answer.
+- For multi-step tasks, report completed actions and verified results accurately; never claim a tool ran or a change succeeded unless it actually did.
+- When using web research, cite claims near the relevant text and include a compact source list with meaningful titles and URLs. Do not invent citations.
+- Ask a follow-up question only when a missing detail materially affects correctness. Otherwise state reasonable assumptions and proceed.
+- Do not reveal private chain-of-thought. Offer a concise rationale, key assumptions, checks performed, and a useful summary instead.
+- Suggest relevant next questions only when they naturally help the user continue; avoid repetitive or generic follow-ups.
 
-**AUTOMATICALLY CREATE AN IMAGE when the user's core intent is:**
-- To SEE something visual: "sunset", "dragon", "red car", "Taj Mahal"
-- To VISUALIZE an idea: "what would a futuristic Delhi look like"
-- Any request where a visual answer is more valuable than text
+**CREATE AN IMAGE when the user explicitly requests an image, drawing, illustration, visual design, or image edit, or when an image is clearly the requested deliverable.**
+- Do not turn ordinary factual questions about visual subjects (for example, "Tell me about the Taj Mahal") into image generation.
+- For ambiguous requests, answer in the most useful format instead of invoking image generation unnecessarily.
 
 **AUTOMATICALLY CREATE A TEXT TABLE when the user's core intent is:**
 - To COMPARE things: "iPhone vs Samsung"
@@ -1300,9 +1330,10 @@ When the user asks for mathematical, scientific, or academic content:
 - GOOD: "Replace the for loop with a Set. Time improves from O(n\xB2) to O(n)"
 
 ## \u{1F50D} WEB SEARCH RULES
-- ALWAYS search for: current events, sports scores, weather, stocks
-- NEVER say "I don't have real-time access"
-- Provide SPECIFIC details: names, numbers, dates, sources
+- Use an available search tool when freshness, verification, or external evidence materially matters.
+- Do not claim a search was performed unless tool results are available.
+- If search is unavailable, fails, or returns insufficient evidence, state that limitation clearly.
+- For researched claims, provide specific details and cite the actual sources used.
 
 ## \u{1F4AC} RESPONSE STYLE
 - Be DIRECT first, then add context
@@ -1389,13 +1420,12 @@ var SupabaseClient = /* @__PURE__ */ __name2(class {
   }
   async verifyJWT(token) {
     try {
-      const parts = token.split(".");
-      if (parts.length !== 3)
-        return null;
-      const payload = JSON.parse(atob(parts[1]));
-      if (payload.exp && Date.now() >= payload.exp * 1e3)
-        return null;
-      return { userId: payload.sub, email: payload.email, role: payload.role, expiresAt: payload.exp ? new Date(payload.exp * 1e3) : null };
+      if (typeof token !== "string" || token.length < 20 || token.length > 8192) return null;
+      const res = await this.auth("GET", "user", null, token);
+      if (!res.ok) return null;
+      const user = await res.json();
+      if (!user || typeof user.id !== "string" || !user.id) return null;
+      return { userId: user.id, email: user.email || null, role: user.role || null, expiresAt: null };
     } catch (e) {
       return null;
     }
@@ -1498,6 +1528,7 @@ async function enhancedAuthenticate(request, env2) {
   const authHeader = request.headers.get("Authorization");
   const apiKey = request.headers.get("X-API-Key");
   const legacyUserId = request.headers.get("X-User-ID");
+  const legacyKeyMatches = !!env2.NEXUS_LEGACY_API_KEY && apiKey === env2.NEXUS_LEGACY_API_KEY;
   const supabaseKey = SUPABASE_CONFIG.SERVICE_ROLE_KEY || SUPABASE_CONFIG.ANON_KEY;
   const supabase = new SupabaseClient(SUPABASE_CONFIG.URL, supabaseKey);
   if (authHeader && authHeader.startsWith("Bearer eyJ")) {
@@ -1509,11 +1540,11 @@ async function enhancedAuthenticate(request, env2) {
       return { authenticated: true, method: "supabase_jwt", userId: decoded.userId, email: decoded.email || (userData ? userData.email : null), userData, isPremium: premiumStatus.isPremium, plan: premiumStatus.plan, premiumExpiry: premiumStatus.premiumExpiry, supabase, token };
     }
   }
-  if (apiKey === CONFIG.API_KEY && legacyUserId && legacyUserId !== "anonymous") {
+  if (legacyKeyMatches && legacyUserId && legacyUserId !== "anonymous") {
     const premiumStatus = await supabase.getPremiumStatus(legacyUserId);
     return { authenticated: true, method: "legacy_api_key", userId: legacyUserId, email: null, userData: null, isPremium: premiumStatus.isPremium || isAdmin(legacyUserId), plan: premiumStatus.plan || "free", premiumExpiry: premiumStatus.premiumExpiry || null, supabase, token: null };
   }
-  if (apiKey === CONFIG.API_KEY) {
+  if (legacyKeyMatches) {
     return { authenticated: false, method: "anonymous", userId: "anonymous", email: null, userData: null, isPremium: false, plan: "free", premiumExpiry: null, supabase, token: null };
   }
   return { authenticated: false, method: "unauthorized", userId: null, email: null, userData: null, isPremium: false, plan: "free", premiumExpiry: null, supabase, token: null };
@@ -1532,14 +1563,14 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async saveChatToSupabase(conversationId, messages, title) {
     try {
       if (conversationId) {
-        const existingResponse = await this.supabase.rest("GET", "conversations?id=eq." + conversationId + "&select=id", null, null);
+        const existingResponse = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=id", null, null);
         if (existingResponse.ok) {
           const existingConvs = await existingResponse.json();
           if (existingConvs.length > 0) {
             const updates = { messages: JSON.stringify(messages), updated_at: (/* @__PURE__ */ new Date()).toISOString() };
             if (title)
               updates.title = title;
-            await this.supabase.updateConversation(conversationId, updates);
+            await this.supabase.rest("PATCH", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId), updates, null);
             return conversationId;
           }
         }
@@ -1554,7 +1585,7 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   async getChatFromSupabase(conversationId) {
     try {
       if (conversationId) {
-        const res = await this.supabase.rest("GET", "conversations?id=eq." + conversationId + "&select=*", null, null);
+        const res = await this.supabase.rest("GET", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId) + "&select=*", null, null);
         if (res.ok) {
           const convs = await res.json();
           if (convs.length > 0) {
@@ -1578,7 +1609,8 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
   }
   async deleteChatFromSupabase(conversationId) {
     try {
-      return await this.supabase.deleteConversation(conversationId);
+      const res = await this.supabase.rest("DELETE", "conversations?id=eq." + encodeURIComponent(conversationId) + "&user_id=eq." + encodeURIComponent(this.userId), null, null);
+      return res.ok;
     } catch (e) {
       return false;
     }
@@ -1812,7 +1844,10 @@ __name(getUser, "getUser");
 __name2(getUser, "getUser");
 __name22(getUser, "getUser");
 async function getEncryptionKey(env2) {
-  const keyMaterial = env2.ENCRYPTION_KEY || "nexus-fallback-key-PLEASE-set-ENCRYPTION_KEY-secret-in-env";
+  const keyMaterial = typeof env2?.ENCRYPTION_KEY === "string" ? env2.ENCRYPTION_KEY.trim() : "";
+  if (keyMaterial.length < 32) {
+    throw new Error("ENCRYPTION_KEY must be configured as a high-entropy Cloudflare secret (at least 32 characters)");
+  }
   const encoder = new TextEncoder();
   const keyData = await crypto.subtle.digest("SHA-256", encoder.encode(keyMaterial));
   return await crypto.subtle.importKey("raw", keyData, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
@@ -1833,7 +1868,7 @@ async function encryptSecret(env2, plaintext) {
     return "enc:" + btoa(binary);
   } catch (e) {
     console.error("encryptSecret error:", e.message);
-    return plaintext;
+    throw new Error("Secret encryption failed; refusing to store plaintext");
   }
 }
 __name(encryptSecret, "encryptSecret");
@@ -1885,13 +1920,13 @@ async function storeIntegration(env2, userId, appName, tokenData) {
     console.log(`\u2705 storeIntegration: Table ready`);
     const id = "int:" + userId + ":" + appName;
     const now = Date.now();
-    const accessToken = tokenData.access_token || null;
-    const refreshToken = tokenData.refresh_token || null;
+    const accessToken = tokenData.access_token ? await encryptSecret(env2, tokenData.access_token) : null;
+    const refreshToken = tokenData.refresh_token ? await encryptSecret(env2, tokenData.refresh_token) : null;
     const sessionString = tokenData.session_string ? await encryptSecret(env2, tokenData.session_string) : null;
     const config = JSON.stringify(tokenData.config || {});
     const expiresAt = tokenData.expires_at || null;
     console.log(`\u{1F535} storeIntegration: id=${id}`);
-    console.log(`\u{1F535} storeIntegration: accessToken = ${accessToken ? accessToken.substring(0, 20) + "..." : "null"}`);
+    console.log(`\u{1F535} storeIntegration: accessToken = ${accessToken ? "present" : "null"}`);
     console.log(`\u{1F535} storeIntegration: sessionString = ${sessionString ? "present" : "null"}`);
     console.log(`\u{1F535} storeIntegration: Checking if ${appName} exists for user ${userId}`);
     const existing = await env2.DB.prepare(
@@ -1978,9 +2013,11 @@ async function refreshOAuthToken(env2, userId, appName, refreshToken) {
     if (!data.access_token) return null;
     const newExpiresAt = Date.now() + (data.expires_in || 3600) * 1e3;
     if (env2.DB) {
+      const encryptedAccessToken = await encryptSecret(env2, data.access_token);
+      const encryptedRefreshToken = data.refresh_token ? await encryptSecret(env2, data.refresh_token) : null;
       await env2.DB.prepare(
         "UPDATE user_integrations SET access_token = ?, refresh_token = COALESCE(?, refresh_token), expires_at = ?, updated_at = ? WHERE user_id = ? AND app_name = ?"
-      ).bind(data.access_token, data.refresh_token || null, newExpiresAt, (/* @__PURE__ */ new Date()).toISOString(), userId, appName).run();
+      ).bind(encryptedAccessToken, encryptedRefreshToken, newExpiresAt, (/* @__PURE__ */ new Date()).toISOString(), userId, appName).run();
     }
     trackEvent(env2, "integration_token_refreshed", { userId, model: appName, status: "ok" });
     return { access_token: data.access_token, refresh_token: data.refresh_token || null, expires_at: newExpiresAt };
@@ -2002,8 +2039,25 @@ async function getIntegration(env2, userId, appName) {
       "SELECT * FROM user_integrations WHERE user_id = ? AND app_name = ? AND status = 'CONNECTED'"
     ).bind(userId, appName).first();
     if (result) {
+      const storedAccessToken = result.access_token || null;
+      const storedRefreshToken = result.refresh_token || null;
+      result.access_token = storedAccessToken ? await decryptSecret(env2, storedAccessToken) : null;
+      result.refresh_token = storedRefreshToken ? await decryptSecret(env2, storedRefreshToken) : null;
+      const encryptionKeyReady = typeof env2.ENCRYPTION_KEY === "string" && env2.ENCRYPTION_KEY.trim().length >= 32;
+      const needsTokenMigration = (storedAccessToken && !storedAccessToken.startsWith("enc:")) || (storedRefreshToken && !storedRefreshToken.startsWith("enc:"));
+      if (encryptionKeyReady && needsTokenMigration) {
+        try {
+          const encryptedAccessToken = storedAccessToken ? (storedAccessToken.startsWith("enc:") ? storedAccessToken : await encryptSecret(env2, storedAccessToken)) : null;
+          const encryptedRefreshToken = storedRefreshToken ? (storedRefreshToken.startsWith("enc:") ? storedRefreshToken : await encryptSecret(env2, storedRefreshToken)) : null;
+          await env2.DB.prepare(
+            "UPDATE user_integrations SET access_token = ?, refresh_token = ? WHERE user_id = ? AND app_name = ?"
+          ).bind(encryptedAccessToken, encryptedRefreshToken, userId, appName).run();
+        } catch (migrationError) {
+          console.error("Integration token migration deferred; verify ENCRYPTION_KEY configuration.");
+        }
+      }
       console.log(`\u2705 getIntegration: Found ${appName} for user ${userId}`);
-      console.log(`\u{1F535} getIntegration: access_token = ${result.access_token ? result.access_token.substring(0, 20) + "..." : "null"}`);
+      console.log(`\u{1F535} getIntegration: access_token = ${result.access_token ? "present" : "null"}`);
       console.log(`\u{1F535} getIntegration: session_string = ${result.session_string ? "present" : "null"}`);
       console.log(`\u{1F535} getIntegration: status = ${result.status}`);
       if (result.config) {
@@ -2302,7 +2356,7 @@ async function buildContext(env2, ip, userId, sessionId, query, modelProvider) {
   const est = /* @__PURE__ */ __name22((t) => Math.ceil((t || "").length / 4), "est");
   if (session.messages?.length > 0) {
     ctx += "## \u{1F4DD} Previous Conversation\n\n";
-    const sorted = [...session.messages].sort((a, b) => (b.importance || 0.5) - (a.importance || 0.5));
+    const sorted = smartContextWindow(session.messages, Math.min(MAX_MSGS, 80));
     let added = 0;
     for (let i = 0; i < sorted.length && added < MAX_MSGS; i++) {
       const m = sorted[i];
@@ -2859,22 +2913,15 @@ __name(multiStageReasoning, "multiStageReasoning");
 __name2(multiStageReasoning, "multiStageReasoning");
 __name22(multiStageReasoning, "multiStageReasoning");
 async function generateDeepThinking(query, context) {
-  const prompt = `You are thinking through a user's request before answering it, the way an expert reasons privately before writing a final response. Write out your genuine internal reasoning in flowing prose, organized as multiple short paragraphs (not a bullet list, not JSON). Cover, in your own words:
-
-- What is the user actually asking, and what is the real underlying need behind it?
-- What are the different ways this could be approached, and which one makes the most sense here and why?
-- What facts, constraints, edge cases, or risks should be kept in mind?
-- What is the plan for the final answer (structure, tone, level of detail)?
-
-Be concrete and specific to this exact query, not generic. Do not address the user directly and do not write the final answer itself \u2014 only the private reasoning that leads up to it.
+  const prompt = `Write a concise, user-facing rationale summary for an AI assistant. Do not reveal private chain-of-thought or hidden deliberation. In 1–3 short sentences, state the high-level approach, important assumptions, or checks that are useful for the user to understand. Do not invent checks or claim tools were used unless the supplied context supports that. Do not answer the user's question here; the final answer is generated separately.
 
 USER QUERY: "${query}"
-${context ? `RECENT CONTEXT: ${context.substring(0, 500)}` : ""}`;
+${context ? `RELEVANT CONVERSATION CONTEXT: ${context.substring(0, 500)}` : ""}`;
   const messages = [{ role: "user", content: prompt }];
   try {
     const aiResult = await callGeminiOrGroq(prompt, messages, {
-      temperature: 0.4,
-      maxTokens: 3e3,
+      temperature: 0.3,
+      maxTokens: 240,
       useWebSearch: false,
       timeout: 14e3,
       functionName: "generateDeepThinking"
@@ -2991,6 +3038,8 @@ async function quantumAIOrchestrator(prompt, messages, options) {
   const enableWebSearch = config.webSearch !== false;
   const priorityMode = config.priority || "balanced";
   const taskType = config.taskType || "general";
+  const supportedModels = ["gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const preferredModel = supportedModels.includes(config.modelPreference) ? config.modelPreference : null;
   let modelChain;
   if (taskType === "code" || priorityMode === "speed") {
     modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova"];
@@ -3001,7 +3050,10 @@ async function quantumAIOrchestrator(prompt, messages, options) {
   } else {
     modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova"];
   }
-  if (priorityMode === "speed") {
+  if (preferredModel) {
+    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel)];
+  }
+  if (priorityMode === "speed" && !preferredModel) {
     const parallelModels = modelChain.slice(0, 2);
     const promises = parallelModels.map(async function(modelName) {
       try {
@@ -4424,38 +4476,53 @@ async function executePluginFull(env2, auth, body) {
   if (!integration) {
     return { error: `${app} not connected. Please connect first.` };
   }
+  const accessToken = await decryptSecret(env2, integration.access_token);
+  if (!accessToken) {
+    return { error: `Could not decrypt the ${app} integration token. Verify ENCRYPTION_KEY or reconnect this integration.` };
+  }
+  if (integration.access_token && !String(integration.access_token).startsWith("enc:") &&
+      typeof env2.ENCRYPTION_KEY === "string" && env2.ENCRYPTION_KEY.trim().length >= 32) {
+    try {
+      const encryptedAccessToken = await encryptSecret(env2, integration.access_token);
+      await env2.DB.prepare(
+        "UPDATE user_integrations SET access_token = ? WHERE user_id = ? AND app_name = ?"
+      ).bind(encryptedAccessToken, auth.userId, app).run();
+    } catch (migrationError) {
+      console.error("Direct plugin token migration deferred; verify ENCRYPTION_KEY configuration.");
+    }
+  }
   let result;
   try {
     switch (app) {
       case "figma":
         if (["get_me", "me", "get_user"].includes(String(action))) {
-          result = await runPluginApi("figma", "get_me", integration.access_token, params || {}, {});
+          result = await runPluginApi("figma", "get_me", accessToken, params || {}, {});
         } else {
-          result = await figmaFullControl(integration.access_token, params?.fileId, action, params);
+          result = await figmaFullControl(accessToken, params?.fileId, action, params);
         }
         break;
       case "telegram":
-        result = await telegramFullControl(integration.access_token, action, params);
+        result = await telegramFullControl(accessToken, action, params);
         break;
       case "discord":
         if (["get_user","list_guilds","list_channels","list_guild_channels","get_guild"].includes(String(action))) {
-          result = await runPluginApi("discord", action, integration.access_token, params || {}, {});
+          result = await runPluginApi("discord", action, accessToken, params || {}, {});
         } else {
-          result = await discordFullControl(integration.access_token, action, params);
+          result = await discordFullControl(accessToken, action, params);
         }
         break;
       case "wolfram":
-        result = await wolframFullControl(integration.access_token, action, params);
+        result = await wolframFullControl(accessToken, action, params);
         break;
       case "canva":
-        result = await canvaFullControl(integration.access_token, action, params);
+        result = await canvaFullControl(accessToken, action, params);
         break;
       case "zapier":
-        result = await zapierFullControl(integration.access_token, params);
+        result = await zapierFullControl(accessToken, params);
         break;
       default:
         if (typeof runPluginApi === "function") {
-          const pluginResult = await runPluginApi(String(app).toLowerCase(), action, integration.access_token, params || {}, {});
+          const pluginResult = await runPluginApi(String(app).toLowerCase(), action, accessToken, params || {}, {});
           const unsupported = pluginResult && typeof pluginResult.error === "string" && String(pluginResult.error).startsWith("Unsupported");
           if (!unsupported) {
             if (pluginResult && (pluginResult.status === 401 || pluginResult.httpStatus === 401)) {
@@ -4470,7 +4537,7 @@ async function executePluginFull(env2, auth, body) {
             return { error: `No built-in API for ${app}.${action}. Provide endpoint or extend runPluginApi.` };
           }
           const apiResult = await genericAuthenticatedApiCall(
-            integration.access_token,
+            accessToken,
             params.method || "GET",
             params.endpoint,
             params.body,
@@ -4958,6 +5025,49 @@ function extractArtifact(responseText) {
   return null;
 }
 __name(extractArtifact, "extractArtifact");
+function normalizeWebSources(sources) {
+  const seen = new Set();
+  const normalized = [];
+  for (const source of Array.isArray(sources) ? sources : []) {
+    if (!source || typeof source.url !== "string") continue;
+    let parsed;
+    try {
+      parsed = new URL(source.url.trim());
+    } catch (_) {
+      continue;
+    }
+    if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) continue;
+    parsed.hash = "";
+    const url = parsed.toString();
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const title = String(source.title || url).replace(/\s+/g, " ").trim().slice(0, 240) || url;
+    normalized.push({ title, url });
+  }
+  return normalized;
+}
+function buildPresentationHint(answer, sources, artifact, relatedQuestions) {
+  const answerText = String(answer || "");
+  const sourceList = Array.isArray(sources) ? sources : [];
+  const followUps = Array.isArray(relatedQuestions) ? relatedQuestions : [];
+  const hasCodeBlock = /\x60{3}/.test(answerText);
+  const hasTable = /\n\s*\|.+\|\s*\n/.test(answerText);
+  const hasNumberedSteps = /(^|\n)\s*\d+[.)]\s+/.test(answerText);
+  return {
+    version: 1,
+    kind: artifact?.type || (sourceList.length ? "research" : hasCodeBlock ? "code" : hasTable ? "table" : hasNumberedSteps || /(^|\n)\s*[-*]\s+/.test(answerText) ? "structured" : "prose"),
+    features: {
+      hasCode: hasCodeBlock,
+      hasTable,
+      hasLinks: /https?:\/\//i.test(answerText),
+      hasNumberedSteps,
+      hasCitations: /\[\d+\]/.test(answerText),
+      hasSources: sourceList.length > 0,
+      hasArtifact: !!artifact,
+      hasRelatedQuestions: followUps.length > 0
+    }
+  };
+}
 async function generateRelatedQuestions(env2, query, responseText) {
   try {
     const prompt = `Based on this Q&A, suggest exactly 3 short, natural follow-up questions the user might ask next.
@@ -5033,7 +5143,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     if (searchResult && searchResult.content) {
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
       if (searchResult.sources && searchResult.sources.length > 0) {
-        webSources = searchResult.sources;
+        webSources = normalizeWebSources(searchResult.sources);
         const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n");
         enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
       }
@@ -5064,9 +5174,9 @@ ${JSON.stringify(config.jsonSchema)}` : `
     const groqRawResult = await callGroqRaw(messages, reasoning.plan?.needsSearch || false);
     if (groqRawResult && groqRawResult.content) {
       aiResult = { response: groqRawResult.content, model: "groq-gpt-oss-120b" };
-      thinking = groqRawResult.reasoning || thinking;
+      // Keep provider-internal reasoning private; only return the concise user-facing rationale summary.
       if (groqRawResult.sources && groqRawResult.sources.length > 0) {
-        webSources = [...webSources, ...groqRawResult.sources];
+        webSources = normalizeWebSources([...webSources, ...groqRawResult.sources]);
       }
     }
   }
@@ -5076,7 +5186,8 @@ ${JSON.stringify(config.jsonSchema)}` : `
       priority: isPremium ? "quality" : "balanced",
       taskType: reasoning.plan?.approach === "code" ? "code" : reasoning.plan?.approach === "creative" ? "creative" : "general",
       env2,
-      userId
+      userId,
+      modelPreference: config.modelPreference
     });
   }
   console.log("aiResult.model:", aiResult.model);
@@ -5119,11 +5230,16 @@ ${response}` }], false);
     response = response.replace(artifact.fullMatch, `\u{1F4C4} **${artifact.title}** \u2014 shown in the artifact panel`);
   }
   let relatedQuestions = [];
-  if (config.includeRelatedQuestions) {
-    relatedQuestions = await generateRelatedQuestions(env2, query, response);
+  const trimmedQuery = String(query || "").trim();
+  const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedQuery);
+  if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
+    try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
+  const normalizedSources = normalizeWebSources(webSources);
+  const presentation = buildPresentationHint(response, normalizedSources, artifact, relatedQuestions);
   return {
     response,
+    presentation,
     ...config.responseFormat === "json" ? { json: jsonParsed, jsonValid } : {},
     model: aiResult.model,
     intent: reasoning.plan?.approach || "general_chat",
@@ -5131,7 +5247,7 @@ ${response}` }], false);
     latency,
     isPremium,
     searchPerformed: reasoning.plan?.needsSearch || false,
-    sources: webSources,
+    sources: normalizedSources,
     thinking,
     artifact,
     relatedQuestions,
@@ -5312,7 +5428,7 @@ function intelligentChunk(text, mode) {
 __name(intelligentChunk, "intelligentChunk");
 __name2(intelligentChunk, "intelligentChunk");
 __name22(intelligentChunk, "intelligentChunk");
-async function quantumStreaming(gen, stream, mode) {
+async function quantumStreaming(gen, stream, mode, metadata, onComplete) {
   const config = STREAMING_MODES[mode] || STREAMING_MODES.typing;
   let fullResponse = "";
   stream.thinking("Starting " + config.name + " streaming mode...");
@@ -5341,9 +5457,17 @@ async function quantumStreaming(gen, stream, mode) {
         });
       }
     }
+    let completionMetadata = {};
+    if (typeof onComplete === "function") {
+      try { completionMetadata = await onComplete(fullResponse) || {}; } catch (_) {}
+    }
+    const sourceList = normalizeWebSources(metadata && metadata.sources);
     stream.done(fullResponse, {
       mode: config.name,
-      totalChunks: chunks.length
+      totalChunks: chunks.length,
+      ...(metadata || {}),
+      ...completionMetadata,
+      presentation: buildPresentationHint(fullResponse, sourceList, null, completionMetadata.relatedQuestions || [])
     });
     return fullResponse;
   } catch (e) {
@@ -5656,63 +5780,8 @@ __name(quantumSambaNovaStream, "quantumSambaNovaStream");
 __name2(quantumSambaNovaStream, "quantumSambaNovaStream");
 __name22(quantumSambaNovaStream, "quantumSambaNovaStream");
 async function* quantumThinkingStream(query, context) {
-  const key = getNextKey("gemini");
-  if (!key)
-    return;
-  const prompt = `You are thinking through a user's request before answering it, the way an expert reasons privately before writing a final response. Write out your genuine internal reasoning in flowing prose, organized as multiple short paragraphs (not a bullet list, not JSON). Cover, in your own words:
-
-- What is the user actually asking, and what is the real underlying need behind it?
-- What are the different ways this could be approached, and which one makes the most sense here and why?
-- What facts, constraints, edge cases, or risks should be kept in mind?
-- What is the plan for the final answer (structure, tone, level of detail)?
-
-Be concrete and specific to this exact query, not generic. Do not address the user directly and do not write the final answer itself \u2014 only the private reasoning that leads up to it.
-
-USER QUERY: "${query}"
-${context ? `RECENT CONTEXT: ${context.substring(0, 500)}` : ""}`;
-  try {
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=" + key,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 3e3,
-            temperature: 0.4
-          }
-        })
-      }
-    );
-    if (!response.ok) {
-      if (response.status === 429)
-        markKeyFailed("gemini", key, 60);
-      return;
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done)
-        break;
-      buffer = buffer + decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data: ") && !line.includes("[DONE]")) {
-          try {
-            const data = JSON.parse(line.substring(6));
-            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text)
-              yield text;
-          } catch (e) {
-          }
-        }
-      }
-    }
-  } catch (e) {
+  if (String(query || "").trim()) {
+    yield "Preparing your response using the relevant conversation context.";
   }
 }
 __name(quantumThinkingStream, "quantumThinkingStream");
@@ -5725,7 +5794,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
     let fullResponse = "";
     try {
       const decision = await quantumSemanticDecision(message, context, null);
-      ultra.thinking("Detected: " + decision.intent + " (" + Math.round(decision.confidence * 100) + "%)");
+      ultra.thinking("Reviewing your request and preparing a response.");
       if (decision.intent === "reminder") {
         const reminderText = decision.args?.reminder_text || message;
         const reminderTime = decision.args?.time_text || message;
@@ -5743,18 +5812,31 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
           ultra.thinking(thoughtChunk);
       }
       let enrichedContext = context || "";
+      let streamSources = [];
       if (decision.intent === "web_search") {
         const searchResult = await performWebSearch(decision.args?.search_query || message);
         if (searchResult) {
           ultra.searchResult(searchResult.source, searchResult.content);
+          streamSources = normalizeWebSources(searchResult.sources || []);
           enrichedContext = "\n\n**\u{1F310} SEARCH: " + searchResult.source + "**\n" + searchResult.content + "\n\n" + enrichedContext;
+          if (streamSources.length) {
+            const citationList = streamSources.map((source, index) => "[" + (index + 1) + "] " + source.title).join("\n");
+            enrichedContext += "\n\n**CITE SOURCES:** Add numbered citations like [1] immediately after claims supported by the matching source. Use only these sources:\n" + citationList;
+          }
         }
       }
       const detectedLanguage = detectLanguage(message);
       const finalPrompt = getMasterPrompt() + "\n\n**Language: " + (INDIAN_LANGUAGES[detectedLanguage]?.name || "English") + "**\n**Today: " + TODAY + "**\n\n" + enrichedContext;
       const messages = [{ role: "user", content: finalPrompt }];
       const gen = quantumStreamGenerator(messages, finalPrompt);
-      fullResponse = await quantumStreaming(gen, ultra, mode);
+      fullResponse = await quantumStreaming(gen, ultra, mode, { intent: decision.intent, sources: streamSources }, async (answerText) => {
+        const trimmedMessage = String(message || "").trim();
+        const isSmallTalk = /^(?:hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedMessage);
+        const relatedQuestions = trimmedMessage.length > 30 && !isSmallTalk
+          ? await generateRelatedQuestions(env2, message, answerText)
+          : [];
+        return { relatedQuestions };
+      });
       if (fullResponse && userId !== "anonymous") {
         await addMessage(env2, ip, userId, sessionId, message, fullResponse);
         await saveToVectorDB(env2, userId, message, {
@@ -7059,6 +7141,17 @@ async function metaThinking2026(env2, userMessage, sessionContext, hasLastImage,
   const mcpDecls = mcpPack.decls || [];
   const mcpOpenAI = typeof mcpToolsToOpenAITools === "function" ? mcpToolsToOpenAITools(mcpPack.tools || []) : [];
   const resolved = await resolveToolIntent(userMessage, sessionContext, hasLastImage, lastImageDesc, connected_tools, mcpDecls, mcpOpenAI);
+  // Function names are sanitized for model APIs, so parseMcpFunctionName cannot
+  // always reconstruct the original connector/tool names (underscores can be
+  // ambiguous). Prefer the per-request map generated from the live MCP catalog.
+  if (resolved?.action === "execute_mcp" && resolved.mcpTool && mcpPack.nameMap?.[resolved.mcpTool]) {
+    const exactMcpTarget = mcpPack.nameMap[resolved.mcpTool];
+    resolved.args = {
+      ...(resolved.args || {}),
+      connector: exactMcpTarget.connector,
+      tool: exactMcpTarget.tool
+    };
+  }
   const pluginBlock = typeof formatPluginsForThinking === "function" ? formatPluginsForThinking(connected_tools) : "";
   const reasoning = [resolved.reasoning, pluginBlock].filter(Boolean).join("\n\n");
   let matched = null;
@@ -7482,6 +7575,37 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
       const res = await callMcpTool(env2, auth.userId, connector, name, args);
       return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
+
+    case "mcp_custom_list": {
+      const res = await listCustomMcps(env2, auth.userId);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_add": {
+      const res = await addCustomMcp(env2, auth.userId, { url: body.url || body.mcpUrl, name: body.name, headers: body.headers });
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: res && res.success ? 200 : 400 });
+    }
+    case "mcp_custom_delete": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await deleteCustomMcp(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_oauth_start": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await getCustomMcpOAuthStart(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: res && res.success ? 200 : 400 });
+    }
+    case "mcp_custom_tools_list": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await listCustomMcpTools(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_tools_call": {
+      const id = body.connectorId || body.id || body.connector;
+      const name = body.name || body.tool;
+      const args = body.arguments || body.params || {};
+      const res = await callCustomMcpTool(env2, auth.userId, id, name, args);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
 case "integration_status": {
       console.log(`\u{1F535} integration_status: User ${auth.userId}`);
       const integrations = await listIntegrations(env2, auth.userId);
@@ -7524,7 +7648,16 @@ case "integration_status": {
         });
       }
       if (token) {
-        await storeIntegration(env2, auth.userId, app, { access_token: token });
+        const tokenStored = await storeIntegration(env2, auth.userId, app, { access_token: token });
+        if (!tokenStored?.success) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: "Integration could not be stored securely. Verify ENCRYPTION_KEY and database configuration."
+          }), {
+            status: 500,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
+          });
+        }
         return new Response(JSON.stringify({
           success: true,
           message: `${app} connected with token`
@@ -7532,8 +7665,6 @@ case "integration_status": {
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
         });
       }
-      const oauthState = generatenewId();
-      await env2.KV.put("oauth_state:" + oauthState, app, { expirationTtl: 300 });
       const oauthConfig = OAUTH_CONFIG[app];
       if (!oauthConfig) {
         return new Response(JSON.stringify({ error: `${app} not supported` }), {
@@ -7541,6 +7672,8 @@ case "integration_status": {
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
         });
       }
+      const oauthState = generatenewId();
+      await env2.KV.put("oauth_state:" + oauthState, JSON.stringify({ provider: app, userId: auth.userId }), { expirationTtl: 300 });
       let pkceExtra = "";
       if (oauthConfig.pkce) {
         const codeVerifier = generateCodeVerifier();
@@ -7903,7 +8036,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       return new Response(JSON.stringify({ analysis: visionResult.analysis, provider: visionResult.provider }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
   }
-  const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true });
+  const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const modelPreference = allowedModelPreferences.includes(body.model) ? body.model : "auto";
+  const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true, modelPreference: modelPreference === "auto" ? undefined : modelPreference });
   await addMessage(env2, ip, auth.userId, sessionId, message, response.response);
   await saveToVectorDB(env2, auth.userId, message, { response: response.response?.substring(0, 500), type: "chat", intent: thinking.action });
   await updateDailyStat(env2, "messages");
@@ -7929,6 +8064,13 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     } else {
       return new Response(JSON.stringify({
         response: response.response,
+        presentation: response.presentation || null,
+        sources: response.sources || [],
+        relatedQuestions: response.relatedQuestions || [],
+        artifact: response.artifact || null,
+        searchPerformed: response.searchPerformed === true,
+        confidence: response.confidence ?? null,
+        language: response.language || targetLanguage,
         thinking: response.thinking,
         intent: thinking.action,
         model: response.model,
@@ -7952,6 +8094,13 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   return new Response(JSON.stringify({
     response: response.response,
     ...response.json !== void 0 ? { json: response.json, jsonValid: response.jsonValid } : {},
+    presentation: response.presentation || null,
+    sources: response.sources || [],
+    relatedQuestions: response.relatedQuestions || [],
+    artifact: response.artifact || null,
+    searchPerformed: response.searchPerformed === true,
+    confidence: response.confidence ?? null,
+    language: response.language || targetLanguage,
     thinking: response.thinking,
     intent: thinking.action,
     model: response.model,
@@ -8540,7 +8689,7 @@ __name(handlePluginDisconnect, "handlePluginDisconnect");
 __name2(handlePluginDisconnect, "handlePluginDisconnect");
 async function executePluginNew(env2, auth, body) {
   console.log(`\u{1F535} executePluginNew: START - User=${auth.userId}`);
-  console.log(`\u{1F535} executePluginNew: body = ${JSON.stringify(body)}`);
+  console.log("\u{1F535} executePluginNew: plugin request received (payload redacted)");
   const app = body.app;
   let action = body.pluginAction || body.tool || body.action;
   if (action === "execute_plugin" || action === "chat") {
@@ -8570,13 +8719,13 @@ async function executePluginNew(env2, auth, body) {
         console.log(`\u{1F535} executePluginNew: TELEGRAM action=${action}`);
         switch (action) {
           case "init":
-            console.log(`\u{1F535} executePluginNew: Calling telegramInit with phone=${params.phone}`);
+            console.log("\u{1F535} executePluginNew: Starting Telegram init (phone redacted)");
             result = await telegramInit(params.phone, auth.userId);
             break;
           case "verify":
-            console.log(`\u{1F535} executePluginNew: Calling telegramVerify with phone=${params.phone}, otp=${params.otp}`);
+            console.log("\u{1F535} executePluginNew: Starting Telegram verification (phone and OTP redacted)");
             result = await telegramVerify(params.phone, params.otp, auth.userId);
-            console.log(`\u{1F535} verify result: ${JSON.stringify(result)}`);
+            console.log(`\u{1F535} verify result: success=${Boolean(result?.success)}, session=${Boolean(result?.sessionString)}`);
             console.log(`\u{1F535} result.success = ${result?.success}`);
             console.log(`\u{1F535} result.sessionString = ${result?.sessionString ? "present" : "null"}`);
             if (result && result.success && result.sessionString) {
@@ -8805,7 +8954,7 @@ var worker_default = {
     if (path === "/health")
       return await handleHealthAction();
     if (path === "/branding/logo") {
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">GPT-5.5</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>';
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60"><defs><linearGradient id="g"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><text x="10" y="40" font-size="32" font-weight="bold" fill="url(#g)">NEXUS</text><text x="120" y="28" font-size="12" fill="#8b5cf6">AI ASSISTANT</text><text x="120" y="44" font-size="10" fill="#94a3b8">by Akhil</text></svg>';
       return new Response(svg, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
     }
     if (path.startsWith("/image/")) {
@@ -8819,21 +8968,50 @@ var worker_default = {
       const canvasId = path.split("/")[2];
       const html = await env2.KV.get("canvas:" + canvasId);
       if (html)
-        return new Response(html, { headers: { "Content-Type": "text/html", "Cache-Control": "public, max-age=3600" } });
+        return new Response(html, {
+          headers: {
+            "Content-Type": "text/html",
+            "Cache-Control": "public, max-age=3600",
+            // Canvas HTML can contain user-generated scripts. Keep it in a
+            // sandboxed opaque origin so it cannot access the Worker origin.
+            "Content-Security-Policy": "sandbox allow-scripts",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer"
+          }
+        });
       return new Response("Canvas not found", { status: 404 });
     }
     if (path === "/api/test/plugins") {
+      const testAuth = await enhancedAuthenticate(request, env2);
+      if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
-      const actionType = url.searchParams.get("actionType") || "read";
+      const actionType = (url.searchParams.get("actionType") || "read").trim().toLowerCase();
+      const readOnlyActions = new Set(["read", "list", "search", "get", "fetch", "view"]);
+      if (!readOnlyActions.has(actionType) && targetProvider === "github") {
+        return new Response(JSON.stringify({ error: "GitHub test route permits read-only actions only; use an isolated test repository for write tests." }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       if (!targetUserId || !targetProvider) {
         return new Response(JSON.stringify({ error: "Missing parameters" }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...CORS_HEADERS }
         });
       }
+      if (!["google", "github"].includes(targetProvider)) {
+        return new Response(JSON.stringify({ error: "Unsupported provider" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
+      // Never allow a request parameter to redirect a test email to an arbitrary recipient.
+      const testRecipient = env2.NEXUS_TEST_EMAIL_TO || "";
+      if (targetProvider === "google" && /send|compose|draft|create|reply|forward/i.test(actionType) && !testRecipient) {
+        return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_EMAIL_TO before running an email write test" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
+      if (targetProvider === "google" && /send|compose|draft|create|reply|forward/i.test(actionType) && url.searchParams.has("to")) {
+        return new Response(JSON.stringify({ error: "Email test destination is configured only through NEXUS_TEST_EMAIL_TO" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+      }
       let payload = {
-        to: url.searchParams.get("to") || "jaiswalanushi8@gmail.com",
+        to: testRecipient,
         subject: url.searchParams.get("subject") || "NEXUS AI Monster Test",
         body: url.searchParams.get("body") || "Bhai! NEXUS AI ka Full Action Plugin ekdam perfect kaam kar raha hai. Live from Cloudflare Worker!",
         repoName: url.searchParams.get("repoName") || "nexus-auto-repo"
@@ -8856,13 +9034,21 @@ var worker_default = {
       }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
     if (pathname === "/testplugin") {
+      const testAuth = await enhancedAuthenticate(request, env2);
+      if (!testAuth.authenticated || !isAdmin(testAuth.userId)) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
+      const testPhone = env2.NEXUS_TEST_TELEGRAM_PHONE;
+      if (!testPhone) {
+        return new Response(JSON.stringify({ error: "Configure NEXUS_TEST_TELEGRAM_PHONE before running the Telegram integration test" }), { status: 503, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       const result = await executePluginNew(env2, {
-        userId: "test_user",
+        userId: testAuth.userId,
         authenticated: true
       }, {
         app: "telegram",
         action: "init",
-        params: { phone: "+919839524592" }
+        params: { phone: testPhone }
       });
       return new Response(JSON.stringify(result), {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
@@ -8957,6 +9143,9 @@ var worker_default = {
     if (path === "/oauth/disconnect") {
       const targetUserId = url.searchParams.get("userId");
       const targetProvider = url.searchParams.get("provider");
+      if (!auth.authenticated || !targetUserId || (targetUserId !== auth.userId && !isAdmin(auth.userId))) {
+        return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       return await handlePluginDisconnect(env2, targetProvider, targetUserId);
     }
     if (path === "/premium/status")
@@ -9001,7 +9190,6 @@ var worker_default = {
     CURRENT_DAY = CURRENT_DATE.day;
     TODAY = CURRENT_DATE.full;
     await checkReminders(env2);
-    await sendDailyStats2026(env2);
     await sendDailyStats2026(env2);
     console.log("\xF0\u0178\u201C\u0160 NEXUS Monster Daily Report sent at " + (/* @__PURE__ */ new Date()).toISOString());
   }

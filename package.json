@@ -1,12 +1,14 @@
 {
   "name": "nexus-gpt-worker",
   "version": "6.0.0",
-  "description": "NEXUS GPT-5.5 Level AI Assistant - Cloudflare Worker with Smart Web Search",
+  "description": "NEXUS A1 AI Assistant — Cloudflare Worker with smart web search and MCP integrations",
   "main": "worker.ts",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "node scripts/verify-ai-upgrade.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "author": "Akhil Jaiswal",
   "license": "MIT",
@@ -27,8 +29,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0",
+    "@cloudflare/workers-types": "^4.20250101.0",
     "typescript": "^5.7.0",
-    "@cloudflare/workers-types": "^4.20250101.0"
+    "wrangler": "^4.154.0"
   }
 }

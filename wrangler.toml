@@ -37,4 +37,3 @@ tag = "v1"
 
 [[migrations]]
 tag = "v2"
-deleted_classes = ["TimeMcpServer"]

@@ -5,6 +5,8 @@
  */
 const DEFAULT_MCP_URL = "https://nexus-mcp-server.apikeyakhilka.workers.dev";
 
+import { MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog, mcpOAuthStartPath } from "./mcp-gateway-connectors.js";
+
 function encoder() {
   return new TextEncoder();
 }
@@ -30,17 +32,18 @@ function mcpBase(env) {
   return (env && env.MCP_SERVER_URL) || DEFAULT_MCP_URL;
 }
 
-export async function mcpGatewayFetch(env, userId, path, { method = "GET", body = null, headers = {} } = {}) {
+export async function mcpGatewayFetch(env, userId, path, options = {}) {
+  const { method = "GET", body = null, headers = {} } = options;
   const secret = env?.NEXUS_INTERNAL_AUTH_SECRET;
   const signature = await signNexusUser(userId, secret);
   if (!userId || !signature) {
     return { ok: false, status: 401, error: "Missing NEXUS_INTERNAL_AUTH_SECRET or userId", data: null };
   }
   const h = {
-    "X-Nexus-User-Id": String(userId),
-    "X-Nexus-Signature": signature,
+    ...headers,
     Accept: "application/json, text/event-stream",
-    ...headers
+    "X-Nexus-User-Id": String(userId),
+    "X-Nexus-Signature": signature
   };
   let payload = body;
   if (body != null && typeof body === "object" && !(body instanceof ArrayBuffer)) {
@@ -48,38 +51,45 @@ export async function mcpGatewayFetch(env, userId, path, { method = "GET", body 
     payload = JSON.stringify(body);
   }
   const pathClean = path.startsWith("/") ? path : `/${path}`;
+  const redirectMode = options.redirect || "follow";
   let res;
   try {
     if (env?.NEXUS_MCP_SERVER && typeof env.NEXUS_MCP_SERVER.fetch === "function") {
       res = await env.NEXUS_MCP_SERVER.fetch(`https://mcp-internal${pathClean}`, {
         method,
         headers: h,
-        body: method === "GET" || method === "HEAD" ? undefined : payload
+        body: method === "GET" || method === "HEAD" ? undefined : payload,
+        redirect: redirectMode
       });
     } else {
       res = await fetch(`${mcpBase(env)}${pathClean}`, {
         method,
         headers: h,
-        body: method === "GET" || method === "HEAD" ? undefined : payload
+        body: method === "GET" || method === "HEAD" ? undefined : payload,
+        redirect: redirectMode
       });
     }
   } catch (e) {
     return { ok: false, status: 0, error: e?.message || String(e), data: null };
   }
+  const location = res.headers.get("location") || null;
   const text = await res.text();
   let data = null;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { raw: text };
+    data = text ? { raw: text } : null;
   }
+  // 3xx with Location is a successful OAuth redirect handshake, not an error body
+  const isRedirect = res.status >= 300 && res.status < 400 && !!location;
   return {
-    ok: res.ok,
+    ok: res.ok || isRedirect,
     status: res.status,
-    error: res.ok ? null : data?.error || data?.message || `HTTP ${res.status}`,
+    error: (res.ok || isRedirect) ? null : data?.error || data?.message || `HTTP ${res.status}`,
     data,
     headers: Object.fromEntries(res.headers.entries()),
-    wwwAuthenticate: res.headers.get("www-authenticate") || null
+    wwwAuthenticate: res.headers.get("www-authenticate") || null,
+    location: res.headers.get("location") || null
   };
 }
 
@@ -264,17 +274,129 @@ export function buildMcpThinkingSteps({ message, connector, tool, result }) {
 
 export function buildMcpAnswerPrompt(userMessage, connector, tool, data) {
   const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  return `You are NEXUS, connected to real MCP servers (Claude/Grok style).
+  return `You are NEXUS, connected to real MCP servers (Claude/Grok style).\n\nUser asked: "${userMessage}"\n\nMCP connector: ${connector}\nTool: ${tool}\n\nLive MCP result:\n\`\`\`json\n${String(payload).substring(0, 12000)}\n\`\`\`\n\nAnswer clearly in the user's language. No raw JSON dump. If OAuth is required, tell them to connect that MCP provider.`;
+}
 
-User asked: "${userMessage}"
+export async function getMcpOAuthStart(env, userId, connectorId) {
+  const connector = String(connectorId || "").trim();
+  if (!connector) return { success: false, error: "connector required" };
+  if (!Object.prototype.hasOwnProperty.call(MCP_GATEWAY_CONNECTORS, connector)) {
+    return { success: false, error: "Unknown MCP connector: " + connector };
+  }
+  const result = await mcpGatewayFetch(env, userId, mcpOAuthStartPath(connector), { method: "GET", redirect: "manual" });
+  const location = result.location || result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location;
+  if (location && /^https?:\/\//i.test(location)) {
+    return { success: true, connector, authorize_url: location, status: result.status };
+  }
+  return {
+    success: false,
+    connector,
+    error: result.error || result.data?.message || "oauth_start_failed",
+    status: result.status,
+    data: result.data
+  };
+}
 
-MCP connector: ${connector}
-Tool: ${tool}
+export function matchMcpFromMessage(message, mcpTools = []) {
+  const query = String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!query || !Array.isArray(mcpTools) || !mcpTools.length) return null;
+  const hasActionVerb = /\b(list|show|get|fetch|search|find|create|update|delete|send|read|write|open|deploy|check|retrieve|add|remove|edit|comment|run|execute|view|look up)\b/i.test(query);
+  const candidates = [];
+  for (const tool of mcpTools) {
+    if (!tool || !tool.connector || !tool.name) continue;
+    const connector = String(tool.connector);
+    const name = String(tool.name);
+    const normalizedName = name.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const normalizedConnector = connector.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const description = String(tool.description || "").toLowerCase();
+    let score = 0;
+    if (normalizedName && (" " + query + " ").includes(" " + normalizedName + " ")) score += 6;
+    if (name.toLowerCase().replace(/[_-]+/g, "") && query.replace(/\s+/g, "").includes(name.toLowerCase().replace(/[_-]+/g, ""))) score += 5;
+    if (normalizedConnector && (" " + query + " ").includes(" " + normalizedConnector + " ")) score += 2;
+    const terms = description.split(/[^a-z0-9]+/).filter(w => w.length >= 4 && !["with", "from", "that", "this", "your", "into", "user", "list", "data"].includes(w));
+    for (const term of terms) if ((" " + query + " ").includes(" " + term + " ")) score += 0.2;
+    if (score >= 5 || (score >= 2.5 && hasActionVerb)) candidates.push({ connector, name, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  if (!candidates.length) return null;
+  if (candidates.length > 1 && candidates[0].score === candidates[1].score) return null;
+  return { connector: candidates[0].connector, name: candidates[0].name };
+}
 
-Live MCP result:
-\`\`\`json
-${String(payload).substring(0, 12000)}
-\`\`\`
+export function formatMcpForThinking(mcpTools = []) {
+  if (!Array.isArray(mcpTools) || !mcpTools.length) return "";
+  return mcpTools.slice(0, 30).map(tool => {
+    const connector = String(tool?.connector || "unknown");
+    const name = String(tool?.name || "tool");
+    const description = String(tool?.description || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    return "- " + connector + "." + name + (description ? ": " + description : "");
+  }).join("\n");
+}
 
-Answer clearly in the user's language. No raw JSON dump. If OAuth is required, tell them to connect that MCP provider.`;
+export { MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog };
+
+/** Claude-style custom MCP (user pastes remote MCP URL) */
+export async function listCustomMcps(env, userId) {
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "GET" });
+  if (!r.ok) return { success: false, error: r.error || "list failed", connectors: [], status: r.status };
+  return { success: true, connectors: r.data?.connectors || [], data: r.data };
+}
+
+export async function addCustomMcp(env, userId, { url, mcpUrl, name, headers } = {}) {
+  const u = String(mcpUrl || url || "").trim();
+  if (!u) return { success: false, error: "url required" };
+  const body = { url: u, name: name || "Custom MCP" };
+  if (headers) body.headers = headers;
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "POST", body });
+  if (!r.ok) return { success: false, error: r.error || r.data?.message || "add failed", data: r.data };
+  return { success: true, ...(r.data || {}) };
+}
+
+export async function setCustomMcpCredentials(env, userId, connectorId, credentials = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const auth = credentials.auth && typeof credentials.auth === "object" ? { ...credentials.auth } : {};
+  if (credentials.apiKey != null) auth.apiKey = credentials.apiKey;
+  if (credentials.bearer != null) auth.bearer = credentials.bearer;
+  if (credentials.token != null && auth.bearer == null) auth.bearer = credentials.token;
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}/credentials`, {
+    method: "POST",
+    body: { auth }
+  });
+  if (!r.ok) return { success: false, error: r.error || "credentials failed", status: r.status, data: r.data };
+  return { success: true, connectorId: id, hasCredentials: true, ...(r.data || {}) };
+}
+
+export async function deleteCustomMcp(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) return { success: false, error: r.error || "delete failed", status: r.status, data: r.data };
+  return { success: true, deleted: id, ...(r.data || {}) };
+}
+
+export async function getCustomMcpOAuthStart(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/oauth/custom/${encodeURIComponent(id)}/start`, {
+    method: "GET",
+    redirect: "manual"
+  });
+  const location = r.location || r.headers?.location || r.data?.authorize_url || r.data?.url;
+  if (location && /^https?:\/\//i.test(location)) {
+    return { success: true, connector: id, authorize_url: location, status: r.status };
+  }
+  return { success: false, connector: id, error: r.error || r.data?.message || "oauth_start_failed", status: r.status, data: r.data };
+}
+
+export async function listCustomMcpTools(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required", tools: [] };
+  return listMcpTools(env, userId, `custom/${id}`);
+}
+
+export async function callCustomMcpTool(env, userId, connectorId, name, args = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  return callMcpTool(env, userId, `custom/${id}`, name, args);
 }

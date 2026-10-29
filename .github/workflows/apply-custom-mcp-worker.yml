@@ -1,0 +1,31 @@
+name: Apply custom MCP worker wire
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_custom_mcp_worker.py'
+      - '.github/workflows/apply-custom-mcp-worker.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nexus-a1-ai-upgrade-2026-10
+      - name: Apply patch
+        run: |
+          set -e
+          python3 scripts/apply_custom_mcp_worker.py
+          grep -n listCustomMcps mcp-client.js | head -3
+          grep -n mcp_custom_list worker.ts | head -5
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          git diff --staged --quiet || git commit -m "feat(mcp): wire custom MCP actions into worker (backend)"
+          git push origin HEAD:nexus-a1-ai-upgrade-2026-10

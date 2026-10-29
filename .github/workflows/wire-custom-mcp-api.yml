@@ -1,0 +1,180 @@
+name: Wire custom MCP API
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/wire-custom-mcp-api.yml'
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nexus-a1-ai-upgrade-2026-10
+      - name: Patch mcp-client + worker
+        run: |
+          set -e
+          python3 << 'PY'
+          from pathlib import Path
+
+          # --- mcp-client.js: ensure custom MCP helpers ---
+          mc = Path('mcp-client.js')
+          t = mc.read_text()
+          if 'listCustomMcps' not in t:
+              t = t.rstrip() + '''
+
+/** Claude-style custom MCP (user pastes remote MCP URL) */
+export async function listCustomMcps(env, userId) {
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "GET" });
+  if (!r.ok) return { success: false, error: r.error || "list failed", connectors: [], status: r.status };
+  return { success: true, connectors: r.data?.connectors || [], data: r.data };
+}
+
+export async function addCustomMcp(env, userId, { url, mcpUrl, name, headers } = {}) {
+  const u = String(mcpUrl || url || "").trim();
+  if (!u) return { success: false, error: "url required" };
+  const body = { url: u, name: name || "Custom MCP" };
+  if (headers) body.headers = headers;
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "POST", body });
+  if (!r.ok) return { success: false, error: r.error || r.data?.message || "add failed", data: r.data };
+  return { success: true, ...(r.data || {}) };
+}
+
+export async function setCustomMcpCredentials(env, userId, connectorId, credentials = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const auth = credentials.auth && typeof credentials.auth === "object" ? { ...credentials.auth } : {};
+  if (credentials.apiKey != null) auth.apiKey = credentials.apiKey;
+  if (credentials.bearer != null) auth.bearer = credentials.bearer;
+  if (credentials.token != null && auth.bearer == null) auth.bearer = credentials.token;
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}/credentials`, {
+    method: "POST",
+    body: { auth }
+  });
+  if (!r.ok) return { success: false, error: r.error || "credentials failed", status: r.status, data: r.data };
+  return { success: true, connectorId: id, hasCredentials: true, ...(r.data || {}) };
+}
+
+export async function deleteCustomMcp(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) return { success: false, error: r.error || "delete failed", status: r.status, data: r.data };
+  return { success: true, deleted: id, ...(r.data || {}) };
+}
+
+export async function getCustomMcpOAuthStart(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/oauth/custom/${encodeURIComponent(id)}/start`, {
+    method: "GET",
+    redirect: "manual"
+  });
+  const location = r.location || r.headers?.location || r.data?.authorize_url || r.data?.url;
+  if (location && /^https?:\/\//i.test(location)) {
+    return { success: true, connector: id, authorize_url: location, status: r.status };
+  }
+  return { success: false, connector: id, error: r.error || r.data?.message || "oauth_start_failed", status: r.status, data: r.data };
+}
+
+export async function listCustomMcpTools(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required", tools: [] };
+  return listMcpTools(env, userId, `custom/${id}`);
+}
+
+export async function callCustomMcpTool(env, userId, connectorId, name, args = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  return callMcpTool(env, userId, `custom/${id}`, name, args);
+}
+'''
+              mc.write_text(t)
+              print('mcp-client custom helpers added')
+          else:
+              print('mcp-client already has custom helpers')
+
+          # --- worker.ts ---
+          w = Path('worker.ts')
+          wt = w.read_text()
+
+          # imports
+          if 'listCustomMcps' not in wt:
+              wt = wt.replace(
+                  '  MCP_GATEWAY_CONNECTORS\n} from "./mcp-client.js";',
+                  '  MCP_GATEWAY_CONNECTORS,\n  listCustomMcps,\n  addCustomMcp,\n  deleteCustomMcp,\n  getCustomMcpOAuthStart,\n  listCustomMcpTools,\n  callCustomMcpTool,\n  setCustomMcpCredentials\n} from "./mcp-client.js";'
+              )
+              print('worker imports updated')
+
+          # availableActions
+          if '"mcp_connectors"' not in wt:
+              wt = wt.replace(
+                  '"execute_plugin"\n        ]',
+                  '"execute_plugin",\n          "mcp_connectors",\n          "mcp_oauth_start",\n          "mcp_tools_list",\n          "mcp_tools_call",\n          "mcp_custom_list",\n          "mcp_custom_add",\n          "mcp_custom_delete",\n          "mcp_custom_oauth_start",\n          "mcp_custom_tools_list",\n          "mcp_custom_tools_call"\n        ]'
+              )
+              print('availableActions updated')
+
+          # API cases
+          if 'mcp_custom_list' not in wt:
+              block = '''
+    case "mcp_custom_list": {
+      const res = await listCustomMcps(env2, auth.userId);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_add": {
+      const res = await addCustomMcp(env2, auth.userId, { url: body.url || body.mcpUrl, name: body.name, headers: body.headers });
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: res && res.success ? 200 : 400 });
+    }
+    case "mcp_custom_delete": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await deleteCustomMcp(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_oauth_start": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await getCustomMcpOAuthStart(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" }, status: res && res.success ? 200 : 400 });
+    }
+    case "mcp_custom_tools_list": {
+      const id = body.connectorId || body.id || body.connector;
+      const res = await listCustomMcpTools(env2, auth.userId, id);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "mcp_custom_tools_call": {
+      const id = body.connectorId || body.id || body.connector;
+      const name = body.name || body.tool;
+      const args = body.arguments || body.params || {};
+      const res = await callCustomMcpTool(env2, auth.userId, id, name, args);
+      return new Response(JSON.stringify(res), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+'''
+              needle = 'case "mcp_tools_call":'
+              # insert after mcp_tools_call block ends (before integration_status)
+              idx = wt.find('case "mcp_tools_call"')
+              if idx < 0:
+                  raise SystemExit('mcp_tools_call not found')
+              # find next case after tools_call return
+              end = wt.find('case "integration_status"', idx)
+              if end < 0:
+                  end = wt.find('case "integration_status":', idx)
+              if end < 0:
+                  raise SystemExit('integration_status not found after mcp_tools_call')
+              wt = wt[:end] + block + wt[end:]
+              print('custom MCP cases inserted')
+          else:
+              print('custom MCP cases already present')
+
+          w.write_text(wt)
+          print('worker written', w.stat().st_size)
+          PY
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          git diff --staged --quiet || git commit -m "feat(mcp): custom MCP API (list/add/oauth/tools) + availableActions"
+          git push origin HEAD:nexus-a1-ai-upgrade-2026-10
