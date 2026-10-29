@@ -50,3 +50,18 @@ The legacy key must be configured as a Cloudflare Worker secret only if legacy s
 - Static tests and CI checks are not a substitute for live end-to-end tests against Supabase, KV, D1, Vectorize, OAuth providers, and MCP services.
 - The Telegram test endpoint still uses a hardcoded test phone number; it is admin-protected, but live execution should wait until a dedicated test account is configured.
 - Legacy plaintext secret compatibility in `decryptSecret` and all OAuth callback/state flows require additional review before deployment.
+
+## Follow-up response-pipeline fixes (29 October 2026)
+
+- The normal chat JSON response now passes through the existing presentation hints, normalized source list, contextual follow-up questions, artifact metadata, search flag, confidence, and language. Previously, quantumResponse created these fields but handleChatAction discarded most of them.
+- Web sources are normalized and deduplicated before citation numbering, restricted to credential-free HTTP(S) URLs, and kept in the same order used by the citation list.
+- Streaming responses now attach sources, presentation metadata, and contextual follow-up questions to the final SSE completion event; the stream search path also gives the model a numbered source list.
+- The stream progress event no longer asks a model to generate hidden internal reasoning. Provider-specific raw reasoning is not returned in the user-facing thinking field; only a concise rationale summary may be returned.
+- Regression checks now cover metadata passthrough, source normalization, stream completion metadata, and the absence of raw provider-reasoning exposure.
+
+## Verification after these changes
+
+- GitHub Actions run for the upgrade branch: 40801700629 — successful for dependency install, high-severity npm audit, static regression tests, production dependency audit (high severity), and local esbuild bundle validation.
+- TypeScript compilation remains informational / non-blocking in CI and still reports legacy type errors. This is not a clean TypeScript typecheck claim.
+- These changes are committed only to nexus-a1-ai-upgrade-2026-10 and its existing draft PR. The main branch and production nexus-a1 Worker have not been changed or deployed.
+- The Worker can return richer metadata, but a separate frontend must render interactive cards, charts, diagrams, source panels, and other visual UI. This repository contains the backend Worker, not that frontend implementation.
