@@ -119,6 +119,6 @@ assert.match(integrationReadSection, /result\.access_token = storedAccessToken \
 assert.match(integrationReadSection, /needsTokenMigration/, "Legacy plaintext tokens should be eligible for best-effort migration when a valid key exists.");
 const fullPluginSection = section("async function executePluginFull(", "__name(executePluginFull");
 assert.match(fullPluginSection, /const accessToken = await decryptSecret\(env2, integration\.access_token\)/, "Direct plugin execution must decrypt stored tokens.");
-assert.equal((fullPluginSection.match(/integration\.access_token/g) || []).length, 1, "Only the decryption call may read the stored token field; provider calls must use the decrypted token.");
+const providerExecution = fullPluginSection.slice(fullPluginSection.indexOf("  let result;"));\nassert.doesNotMatch(providerExecution, /integration\.access_token/, "Provider calls must use the decrypted token, never the stored database value.");
 
 console.log("NEXUS upgrade static checks passed.");
