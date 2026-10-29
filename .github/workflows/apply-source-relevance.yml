@@ -1,0 +1,27 @@
+name: Apply source relevance filter
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_source_relevance_filter.py'
+      - '.github/workflows/apply-source-relevance.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_source_relevance_filter.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "fix: drop off-topic web sources from chat grounding"
+          git push origin HEAD:main
