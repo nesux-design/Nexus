@@ -1290,6 +1290,15 @@ function getMasterPrompt() {
   return `You are NEXUS, an AI assistant created by Akhil Jaiswal. Use the model providers, search systems, memory, and tools actually available in this deployment. Do not claim to be ChatGPT, Claude, or a specific proprietary model, and do not claim equivalent capabilities without evidence. Aim for accurate, useful, production-quality answers, but state uncertainty and limitations honestly.
 
 Answer formation (ChatGPT-class):
+
+ChatGPT-parity response contract:
+- Match modern ChatGPT answer quality: direct lead, then structured detail only if useful.
+- For knowledge questions, answer from model knowledge first; use web only for freshness, news, prices, sports, or when the user asks for sources.
+- When sources exist, place [n] markers next to the supported claims and keep titles honest.
+- For how-to: numbered steps. For compare: short table or bullets. For code: fenced blocks with language tags.
+- Never dump unrelated news links. Never pad with filler.
+- Keep tone natural and confident but not arrogant; state uncertainty when the topic is disputed or time-sensitive.
+
 - Lead with a direct answer in 1–3 sentences when the user asked a concrete question.
 - For multi-part or how-to requests, use clear markdown structure (short headings, bullets, numbered steps).
 - Prefer scannable layout over long walls of text; keep paragraphs short.
@@ -2902,8 +2911,8 @@ CONTEXT: ${context ? context.substring(0, 300) : "New"}`;
   }
   return {
     plan: {
-      needsSearch: true,
-      complexity: "medium",
+      needsSearch: false,
+      complexity: "simple",
       approach: "direct",
       steps: 1,
       plan: "Process directly"
@@ -5056,6 +5065,32 @@ function normalizeWebSources(sources) {
   return normalized;
 }
 
+
+function shouldUseWebSearch(query, planNeedsSearch) {
+  const q = String(query || "").trim();
+  if (!q) return false;
+  // Simple definition / one-liner / greeting — no live web needed (ChatGPT-style)
+  if (/^(hi|hello|hey|thanks|thank you|ok|okay|bye)\b/i.test(q)) return false;
+  if (/\b(in one line|one sentence|one-liner|briefly define|what is .+\?$)\b/i.test(q) && q.length < 120) {
+    // definitional unless explicitly about current events
+    if (!/\b(today|latest|news|current|202[4-9]|who won|stock|price|weather)\b/i.test(q)) return false;
+  }
+  if (/\b(latest|today|news|current|breaking|who won|score|stock|weather|price of)\b/i.test(q)) return true;
+  if (planNeedsSearch === true) return true;
+  if (planNeedsSearch === false) return false;
+  // Default: medium+ queries may search; short pure knowledge questions skip
+  return q.length > 80;
+}
+function buildCitations(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  return list.map((s, i) => ({
+    index: i + 1,
+    title: s.title || s.url,
+    url: s.url,
+    type: "url_citation"
+  }));
+}
+
 function filterRelevantWebSources(query, sources, limit = 5) {
   const list = Array.isArray(sources) ? sources : [];
   if (!list.length) return [];
@@ -5185,7 +5220,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   } catch (e) {
     console.error("Custom instructions fetch error:", e.message);
   }
-  if (reasoning.plan && reasoning.plan.needsSearch) {
+  if (reasoning.plan && shouldUseWebSearch(query, reasoning.plan.needsSearch)) {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
@@ -5218,7 +5253,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   let thinking = deepThinkingText || (reasoning.thinking && reasoning.thinking.length ? reasoning.thinking : null);
   let aiResult;
   if (config.showThinking) {
-    const groqRawResult = await callGroqRaw(messages, reasoning.plan?.needsSearch || false);
+    const groqRawResult = await callGroqRaw(messages, shouldUseWebSearch(query, reasoning.plan?.needsSearch || false));
     if (groqRawResult && groqRawResult.content) {
       aiResult = { response: groqRawResult.content, model: "groq-gpt-oss-120b" };
       // Keep provider-internal reasoning private; only return the concise user-facing rationale summary.
@@ -5229,7 +5264,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   }
   if (!aiResult) {
     aiResult = await quantumAIOrchestrator(finalPrompt, messages, {
-      webSearch: reasoning.plan?.needsSearch || false,
+      webSearch: shouldUseWebSearch(query, reasoning.plan?.needsSearch || false),
       priority: isPremium ? "quality" : "balanced",
       taskType: reasoning.plan?.approach === "code" ? "code" : reasoning.plan?.approach === "creative" ? "creative" : "general",
       env2,
@@ -5293,8 +5328,9 @@ ${response}` }], false);
     confidence: reasoning.reasoning?.confidence || 0.7,
     latency,
     isPremium,
-    searchPerformed: reasoning.plan?.needsSearch || false,
+    searchPerformed: normalizedSources.length > 0,
     sources: normalizedSources,
+    citations: buildCitations(normalizedSources),
     thinking,
     artifact,
     relatedQuestions,
@@ -8132,9 +8168,10 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         response: response.response,
         presentation: response.presentation || null,
         sources: response.sources || [],
+        citations: response.citations || buildCitations(response.sources || []),
         relatedQuestions: response.relatedQuestions || [],
         artifact: response.artifact || null,
-        searchPerformed: response.searchPerformed === true,
+        searchPerformed: (response.sources && response.sources.length > 0) || response.searchPerformed === true,
         confidence: response.confidence ?? null,
         language: response.language || targetLanguage,
         thinking: (body.showThinking === true ? response.thinking : (response.thinking ? String(response.thinking).split(/\n/).slice(0, 1).join(" ").slice(0, 160) : null)),
@@ -8162,9 +8199,10 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     ...response.json !== void 0 ? { json: response.json, jsonValid: response.jsonValid } : {},
     presentation: response.presentation || null,
     sources: response.sources || [],
+    citations: response.citations || buildCitations(response.sources || []),
     relatedQuestions: response.relatedQuestions || [],
     artifact: response.artifact || null,
-    searchPerformed: response.searchPerformed === true,
+    searchPerformed: (response.sources && response.sources.length > 0) || response.searchPerformed === true,
     confidence: response.confidence ?? null,
     language: response.language || targetLanguage,
     thinking: (body.showThinking === true ? response.thinking : (response.thinking ? String(response.thinking).split(/\n/).slice(0, 1).join(" ").slice(0, 160) : null)),
