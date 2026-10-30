@@ -5076,6 +5076,47 @@ function buildCitations(sources) {
   }));
 }
 
+
+function extractUrlsAsSources(text, limit = 8) {
+  const out = [];
+  const seen = new Set();
+  const s = String(text || "");
+  // markdown links [title](url)
+  const md = /\[([^\]]{1,120})\]\((https?:\/\/[^)\s]+)\)/gi;
+  let m;
+  while ((m = md.exec(s)) !== null) {
+    const url = m[2];
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push({ title: m[1].trim() || url, url });
+    if (out.length >= limit) return out;
+  }
+  // bare urls
+  const bare = /https?:\/\/[^\s\]\)"'<>]+/gi;
+  while ((m = bare.exec(s)) !== null) {
+    let url = m[0].replace(/[.,;:!?)]+$/, "");
+    if (seen.has(url)) continue;
+    seen.add(url);
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, "");
+      out.push({ title: host, url });
+    } catch (_) {}
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+function cleanAnswerArtifacts(text) {
+  let t = String(text || "");
+  // Groq/OpenAI-style internal cite markers e.g. 【10†L12-L15】 or 【10†L12-L15 】
+  t = t.replace(/【[^】]*】/g, "");
+  // leftover dagger line refs
+  t = t.replace(/\s*†L\d+-L\d+/g, "");
+  // collapse whitespace
+  t = t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  t = t.replace(/ +([.,;:!?])/g, "$1");
+  return t.trim();
+}
+
 function filterRelevantWebSources(query, sources, limit = 5) {
   const list = Array.isArray(sources) ? sources : [];
   if (!list.length) return [];
@@ -5097,8 +5138,8 @@ function filterRelevantWebSources(query, sources, limit = 5) {
   scored.sort((a, b) => b.score - a.score);
   const relevant = scored.filter((x) => x.score > 0).map((x) => x.s);
   if (relevant.length) return relevant.slice(0, limit);
-  // If nothing matches query tokens, drop sources rather than attach random news
-  return [];
+  // Keep best-effort top sources (still better than silent empty when search ran)
+  return scored.map((x) => x.s).slice(0, Math.min(limit, 3));
 }
 
 function buildPresentationHint(answer, sources, artifact, relatedQuestions) {
@@ -5197,6 +5238,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   ]);
   let enrichedContext = context || "";
   let webSources = [];
+  let didWebSearch = false;
   try {
     const userForPrefs = await getUser(env2, userId);
     if (userForPrefs.customInstructions) {
@@ -5208,11 +5250,31 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   if (reasoning.plan && reasoning.plan.needsSearch) {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
-      enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
-      if (searchResult.sources && searchResult.sources.length > 0) {
-        webSources = filterRelevantWebSources(query, normalizeWebSources(searchResult.sources));
-        const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n");
-        enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
+      didWebSearch = true;
+      enrichedContext = "
+
+**LIVE SEARCH (Source: " + searchResult.source + "):**
+" + searchResult.content + "
+
+**PRIMARY DATA - Today: " + TODAY + "**
+
+" + enrichedContext;
+      let rawSources = Array.isArray(searchResult.sources) ? searchResult.sources : [];
+      if (!rawSources.length) {
+        rawSources = extractUrlsAsSources(searchResult.content);
+      }
+      webSources = filterRelevantWebSources(query, normalizeWebSources(rawSources));
+      if (!webSources.length && rawSources.length) {
+        webSources = normalizeWebSources(rawSources).slice(0, 5);
+      }
+      if (webSources.length) {
+        const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join("
+");
+        enrichedContext = "
+
+**CITE YOUR SOURCES:** Use only [1], [2], ... markers matching this list. Never invent markers like 【】 or †L references.
+" + citationList + "
+" + enrichedContext;
       }
     }
   }
@@ -5259,7 +5321,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   }
   console.log("aiResult.model:", aiResult.model);
   console.log("aiResult.response preview:", aiResult.response?.substring(0, 100));
-  let response = aiResult.response;
+  let response = cleanAnswerArtifacts(aiResult.response);
   let jsonParsed = null;
   let jsonValid = null;
   if (config.responseFormat === "json") {
@@ -5313,7 +5375,7 @@ ${response}` }], false);
     confidence: reasoning.reasoning?.confidence || 0.7,
     latency,
     isPremium,
-    searchPerformed: normalizedSources.length > 0,
+    searchPerformed: didWebSearch || normalizedSources.length > 0,
     sources: normalizedSources,
     citations: buildCitations(normalizedSources),
     thinking,
