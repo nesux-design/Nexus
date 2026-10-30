@@ -1,0 +1,27 @@
+name: Apply god-level reliability
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_god_level_reliability.py'
+      - '.github/workflows/apply-god-level-reliability.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_god_level_reliability.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "fix: reliability — QR message alias, emergency model retry, search recovery, no greeting fallback"
+          git push origin HEAD:main
