@@ -3114,12 +3114,29 @@ async function quantumAIOrchestrator(prompt, messages, options) {
       }
     }
   }
+  // Emergency single-shot retry (no web tools) before user-visible failure
+  try {
+    const emergency = await callSpecificModel("gemini", prompt, messages, false);
+    if (emergency) {
+      return { response: emergency, model: "gemini", success: true };
+    }
+  } catch (e) {
+    console.error("emergency gemini failed:", e && e.message);
+  }
+  try {
+    const emergency2 = await callSpecificModel("groq", prompt, messages, false);
+    if (emergency2) {
+      return { response: emergency2, model: "groq", success: true };
+    }
+  } catch (e) {
+    console.error("emergency groq failed:", e && e.message);
+  }
   if (config.env2) {
     await logError(config.env2, config.userId || "anonymous", "ai_provider_chain_exhausted", `All models in chain failed: ${modelChain.join(", ")}`, "quantumAIOrchestrator").catch(() => {
     });
   }
   return {
-    response: "I am " + CONFIG.APP_NAME + " created by " + CONFIG.CREATOR + ". How can I help you today?",
+    response: "I could not complete a full model response just now (providers were busy or timed out). Please retry your question in a moment — I will answer it directly.",
     model: "fallback",
     success: false
   };
@@ -5239,6 +5256,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   let enrichedContext = context || "";
   let webSources = [];
   let didWebSearch = false;
+  let liveSearchContent = null;
   try {
     const userForPrefs = await getUser(env2, userId);
     if (userForPrefs.customInstructions) {
@@ -5251,6 +5269,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
       didWebSearch = true;
+      liveSearchContent = searchResult.content;
       enrichedContext = "
 
 **LIVE SEARCH (Source: " + searchResult.source + "):**
@@ -5322,6 +5341,17 @@ ${JSON.stringify(config.jsonSchema)}` : `
   console.log("aiResult.model:", aiResult.model);
   console.log("aiResult.response preview:", aiResult.response?.substring(0, 100));
   let response = cleanAnswerArtifacts(aiResult.response);
+  // God-level recovery: never return a useless greeting when the user asked a real question
+  const looksLikeGreeting = /how can i help you today/i.test(response || "") || /i am nexus created by/i.test(response || "");
+  if ((aiResult.model === "fallback" || looksLikeGreeting || aiResult.success === false) && liveSearchContent && String(liveSearchContent).length > 80) {
+    const cleanedSearch = cleanAnswerArtifacts(String(liveSearchContent).slice(0, 3500));
+    response = "Here is what I found from live sources:
+
+" + cleanedSearch;
+    aiResult = { ...aiResult, model: (aiResult.model === "fallback" ? "search-recovery" : aiResult.model), success: true };
+  } else if ((aiResult.model === "fallback" || looksLikeGreeting) && query) {
+    response = cleanAnswerArtifacts("I could not finish generating the full answer just now. Please ask again: "" + String(query).slice(0, 200) + """);
+  }
   let jsonParsed = null;
   let jsonValid = null;
   if (config.responseFormat === "json") {
@@ -8383,7 +8413,7 @@ __name(handleFileAnalysisAction, "handleFileAnalysisAction");
 __name2(handleFileAnalysisAction, "handleFileAnalysisAction");
 __name22(handleFileAnalysisAction, "handleFileAnalysisAction");
 async function handleQRAction(body) {
-  const text = body.text || body.data;
+  const text = body.text || body.data || body.message || body.content;
   if (!text)
     return new Response(JSON.stringify({ error: "Text required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   const qr = await generateQRCodeQuantum(text, body.size || 300);
