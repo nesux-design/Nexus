@@ -1,0 +1,27 @@
+name: Apply ChatGPT parity pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_chatgpt_parity.py'
+      - '.github/workflows/apply-chatgpt-parity.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_chatgpt_parity.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "feat: ChatGPT-parity search gating, citations, accurate searchPerformed"
+          git push origin HEAD:main
