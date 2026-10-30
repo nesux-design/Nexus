@@ -5066,21 +5066,6 @@ function normalizeWebSources(sources) {
 }
 
 
-function shouldUseWebSearch(query, planNeedsSearch) {
-  const q = String(query || "").trim();
-  if (!q) return false;
-  // Simple definition / one-liner / greeting — no live web needed (ChatGPT-style)
-  if (/^(hi|hello|hey|thanks|thank you|ok|okay|bye)\b/i.test(q)) return false;
-  if (/\b(in one line|one sentence|one-liner|briefly define|what is .+\?$)\b/i.test(q) && q.length < 120) {
-    // definitional unless explicitly about current events
-    if (!/\b(today|latest|news|current|202[4-9]|who won|stock|price|weather)\b/i.test(q)) return false;
-  }
-  if (/\b(latest|today|news|current|breaking|who won|score|stock|weather|price of)\b/i.test(q)) return true;
-  if (planNeedsSearch === true) return true;
-  if (planNeedsSearch === false) return false;
-  // Default: medium+ queries may search; short pure knowledge questions skip
-  return q.length > 80;
-}
 function buildCitations(sources) {
   const list = Array.isArray(sources) ? sources : [];
   return list.map((s, i) => ({
@@ -5220,7 +5205,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   } catch (e) {
     console.error("Custom instructions fetch error:", e.message);
   }
-  if (reasoning.plan && shouldUseWebSearch(query, reasoning.plan.needsSearch)) {
+  if (reasoning.plan && reasoning.plan.needsSearch) {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
@@ -5253,7 +5238,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   let thinking = deepThinkingText || (reasoning.thinking && reasoning.thinking.length ? reasoning.thinking : null);
   let aiResult;
   if (config.showThinking) {
-    const groqRawResult = await callGroqRaw(messages, shouldUseWebSearch(query, reasoning.plan?.needsSearch || false));
+    const groqRawResult = await callGroqRaw(messages, reasoning.plan?.needsSearch || false);
     if (groqRawResult && groqRawResult.content) {
       aiResult = { response: groqRawResult.content, model: "groq-gpt-oss-120b" };
       // Keep provider-internal reasoning private; only return the concise user-facing rationale summary.
@@ -5264,7 +5249,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   }
   if (!aiResult) {
     aiResult = await quantumAIOrchestrator(finalPrompt, messages, {
-      webSearch: shouldUseWebSearch(query, reasoning.plan?.needsSearch || false),
+      webSearch: reasoning.plan?.needsSearch || false,
       priority: isPremium ? "quality" : "balanced",
       taskType: reasoning.plan?.approach === "code" ? "code" : reasoning.plan?.approach === "creative" ? "creative" : "general",
       env2,
