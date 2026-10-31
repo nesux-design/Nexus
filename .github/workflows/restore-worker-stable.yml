@@ -1,0 +1,42 @@
+name: Restore worker stable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/restore-worker-stable.yml'
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Restore worker.ts from 9212d191
+        run: |
+          set -e
+          # Stable point: after MCP availableActions, before batch2/parity/god-level experiments
+          git show 9212d191a1f789aa63888f921876dce73270cfb9:worker.ts > worker.ts
+          wc -c worker.ts
+          # sanity: must be large worker
+          test $(wc -c < worker.ts) -gt 300000
+          # ensure experimental helpers gone
+          ! grep -q 'shouldUseWebSearch' worker.ts || true
+          ! grep -q 'search-recovery' worker.ts || true
+          echo "restored ok"
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          if git diff --staged --quiet; then
+            echo "already at target"
+          else
+            git commit -m "revert: worker.ts restored to stable 9212d191 (pre batch2/parity/god-level)"
+            git push origin HEAD:main
+          fi
