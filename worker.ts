@@ -1289,24 +1289,6 @@ __name(getCapabilitiesSection, "getCapabilitiesSection");
 function getMasterPrompt() {
   return `You are NEXUS, an AI assistant created by Akhil Jaiswal. Use the model providers, search systems, memory, and tools actually available in this deployment. Do not claim to be ChatGPT, Claude, or a specific proprietary model, and do not claim equivalent capabilities without evidence. Aim for accurate, useful, production-quality answers, but state uncertainty and limitations honestly.
 
-Answer formation (ChatGPT-class):
-
-ChatGPT-parity response contract:
-- Match modern ChatGPT answer quality: direct lead, then structured detail only if useful.
-- For knowledge questions, answer from model knowledge first; use web only for freshness, news, prices, sports, or when the user asks for sources.
-- When sources exist, place [n] markers next to the supported claims and keep titles honest.
-- For how-to: numbered steps. For compare: short table or bullets. For code: fenced blocks with language tags.
-- Never dump unrelated news links. Never pad with filler.
-- Keep tone natural and confident but not arrogant; state uncertainty when the topic is disputed or time-sensitive.
-
-- Lead with a direct answer in 1–3 sentences when the user asked a concrete question.
-- For multi-part or how-to requests, use clear markdown structure (short headings, bullets, numbered steps).
-- Prefer scannable layout over long walls of text; keep paragraphs short.
-- When tools/search/MCP data was used, ground claims in that data and do not invent results.
-- If a tool, plugin, or MCP call fails or returns empty data, say so clearly; never invent profile, file, or account details.
-- Prefer "I couldn't retrieve X" over confident guesses when live data is missing.
-- End substantial answers ready for follow-ups; the system may attach related questions separately.
-
 When asked about your name "NEXUS":
 - Tell them it stands for Neural Experience Xtended Unified System
 - Explain what each word means in a natural, inspiring way
@@ -2911,8 +2893,8 @@ CONTEXT: ${context ? context.substring(0, 300) : "New"}`;
   }
   return {
     plan: {
-      needsSearch: false,
-      complexity: "simple",
+      needsSearch: true,
+      complexity: "medium",
       approach: "direct",
       steps: 1,
       plan: "Process directly"
@@ -3056,20 +3038,20 @@ async function quantumAIOrchestrator(prompt, messages, options) {
   const enableWebSearch = config.webSearch !== false;
   const priorityMode = config.priority || "balanced";
   const taskType = config.taskType || "general";
-  const supportedModels = ["gemini", "groq", "mimo", "cerebras", "sambanova", "openrouter"];
+  const supportedModels = ["gemini", "groq", "mimo", "cerebras", "sambanova"];
   const preferredModel = supportedModels.includes(config.modelPreference) ? config.modelPreference : null;
   let modelChain;
   if (taskType === "code" || priorityMode === "speed") {
-    modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova", "openrouter"];
+    modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova"];
   } else if (taskType === "creative") {
-    modelChain = ["mimo", "gemini", "groq", "sambanova", "cerebras", "openrouter"];
+    modelChain = ["mimo", "gemini", "groq", "sambanova", "cerebras"];
   } else if (priorityMode === "quality") {
-    modelChain = ["gemini", "groq", "mimo", "sambanova", "cerebras", "openrouter"];
+    modelChain = ["gemini", "groq", "mimo", "sambanova", "cerebras"];
   } else {
-    modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova", "openrouter"];
+    modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova"];
   }
   if (preferredModel) {
-    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel && name !== "openrouter"), "openrouter"];
+    modelChain = [preferredModel, ...modelChain.filter((name) => name !== preferredModel)];
   }
   if (priorityMode === "speed" && !preferredModel) {
     const parallelModels = modelChain.slice(0, 2);
@@ -3114,29 +3096,12 @@ async function quantumAIOrchestrator(prompt, messages, options) {
       }
     }
   }
-  // Emergency single-shot retry (no web tools) before user-visible failure
-  try {
-    const emergency = await callSpecificModel("gemini", prompt, messages, false);
-    if (emergency) {
-      return { response: emergency, model: "gemini", success: true };
-    }
-  } catch (e) {
-    console.error("emergency gemini failed:", e && e.message);
-  }
-  try {
-    const emergency2 = await callSpecificModel("groq", prompt, messages, false);
-    if (emergency2) {
-      return { response: emergency2, model: "groq", success: true };
-    }
-  } catch (e) {
-    console.error("emergency groq failed:", e && e.message);
-  }
   if (config.env2) {
     await logError(config.env2, config.userId || "anonymous", "ai_provider_chain_exhausted", `All models in chain failed: ${modelChain.join(", ")}`, "quantumAIOrchestrator").catch(() => {
     });
   }
   return {
-    response: "I could not complete a full model response just now (providers were busy or timed out). Please retry your question in a moment — I will answer it directly.",
+    response: "I am " + CONFIG.APP_NAME + " created by " + CONFIG.CREATOR + ". How can I help you today?",
     model: "fallback",
     success: false
   };
@@ -5081,84 +5046,6 @@ function normalizeWebSources(sources) {
   }
   return normalized;
 }
-
-
-function buildCitations(sources) {
-  const list = Array.isArray(sources) ? sources : [];
-  return list.map((s, i) => ({
-    index: i + 1,
-    title: s.title || s.url,
-    url: s.url,
-    type: "url_citation"
-  }));
-}
-
-
-function extractUrlsAsSources(text, limit = 8) {
-  const out = [];
-  const seen = new Set();
-  const s = String(text || "");
-  // markdown links [title](url)
-  const md = /\[([^\]]{1,120})\]\((https?:\/\/[^)\s]+)\)/gi;
-  let m;
-  while ((m = md.exec(s)) !== null) {
-    const url = m[2];
-    if (seen.has(url)) continue;
-    seen.add(url);
-    out.push({ title: m[1].trim() || url, url });
-    if (out.length >= limit) return out;
-  }
-  // bare urls
-  const bare = /https?:\/\/[^\s\]\)"'<>]+/gi;
-  while ((m = bare.exec(s)) !== null) {
-    let url = m[0].replace(/[.,;:!?)]+$/, "");
-    if (seen.has(url)) continue;
-    seen.add(url);
-    try {
-      const host = new URL(url).hostname.replace(/^www\./, "");
-      out.push({ title: host, url });
-    } catch (_) {}
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-function cleanAnswerArtifacts(text) {
-  let t = String(text || "");
-  // Groq/OpenAI-style internal cite markers e.g. 【10†L12-L15】 or 【10†L12-L15 】
-  t = t.replace(/【[^】]*】/g, "");
-  // leftover dagger line refs
-  t = t.replace(/\s*†L\d+-L\d+/g, "");
-  // collapse whitespace
-  t = t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
-  t = t.replace(/ +([.,;:!?])/g, "$1");
-  return t.trim();
-}
-
-function filterRelevantWebSources(query, sources, limit = 5) {
-  const list = Array.isArray(sources) ? sources : [];
-  if (!list.length) return [];
-  const stop = new Set(["the", "and", "for", "are", "what", "how", "why", "who", "when", "where", "with", "from", "this", "that", "have", "has", "was", "were", "will", "your", "about", "into", "line", "simple", "explain", "please", "tell", "give", "does", "did", "can", "one", "two"]);
-  const tokens = String(query || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !stop.has(w));
-  if (!tokens.length) return list.slice(0, limit);
-  const scored = list.map((s) => {
-    const hay = `${s.title || ""} ${s.url || ""}`.toLowerCase();
-    let score = 0;
-    for (const tok of tokens) {
-      if (hay.includes(tok)) score += 2;
-    }
-    // Prefer educational / reference domains lightly
-    if (/\b(wikipedia|britannica|edu|nasa\.gov|nih\.gov|khan|dictionary|merriam)\b/i.test(hay)) score += 2;
-    // Downrank generic news RSS noise when off-topic
-    if (/news\.google\.com|\brss\b/i.test(hay) && score < 2) score -= 3;
-    return { s, score };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  const relevant = scored.filter((x) => x.score > 0).map((x) => x.s);
-  if (relevant.length) return relevant.slice(0, limit);
-  // Keep best-effort top sources (still better than silent empty when search ran)
-  return scored.map((x) => x.s).slice(0, Math.min(limit, 3));
-}
-
 function buildPresentationHint(answer, sources, artifact, relatedQuestions) {
   const answerText = String(answer || "");
   const sourceList = Array.isArray(sources) ? sources : [];
@@ -5196,25 +5083,13 @@ Respond ONLY with a JSON array of 3 strings, nothing else. Example: ["Follow up 
     });
     const parsed = tryParseJSON(result.response);
     if (Array.isArray(parsed)) {
-      const qs = parsed.slice(0, 3).map((q) => String(q)).filter(Boolean);
-      if (qs.length) return qs;
+      return parsed.slice(0, 3).map((q) => String(q)).filter(Boolean);
     }
-    return heuristicRelatedQuestions(query, responseText);
+    return [];
   } catch (e) {
     console.error("generateRelatedQuestions error:", e.message);
-    return heuristicRelatedQuestions(query, responseText);
+    return [];
   }
-}
-function heuristicRelatedQuestions(query, responseText) {
-  const q = String(query || "").trim();
-  if (!q) return [];
-  const base = q.length > 80 ? q.slice(0, 77) + "..." : q;
-  const out = [
-    `Can you explain more about: ${base}?`,
-    `What are practical next steps related to this?`,
-    `Are there common mistakes or edge cases I should know?`
-  ];
-  return out;
 }
 __name(generateRelatedQuestions, "generateRelatedQuestions");
 function tryParseJSON(text) {
@@ -5255,8 +5130,6 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   ]);
   let enrichedContext = context || "";
   let webSources = [];
-  let didWebSearch = false;
-  let liveSearchContent = null;
   try {
     const userForPrefs = await getUser(env2, userId);
     if (userForPrefs.customInstructions) {
@@ -5268,32 +5141,11 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   if (reasoning.plan && reasoning.plan.needsSearch) {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
-      didWebSearch = true;
-      liveSearchContent = searchResult.content;
-      enrichedContext = "
-
-**LIVE SEARCH (Source: " + searchResult.source + "):**
-" + searchResult.content + "
-
-**PRIMARY DATA - Today: " + TODAY + "**
-
-" + enrichedContext;
-      let rawSources = Array.isArray(searchResult.sources) ? searchResult.sources : [];
-      if (!rawSources.length) {
-        rawSources = extractUrlsAsSources(searchResult.content);
-      }
-      webSources = filterRelevantWebSources(query, normalizeWebSources(rawSources));
-      if (!webSources.length && rawSources.length) {
-        webSources = normalizeWebSources(rawSources).slice(0, 5);
-      }
-      if (webSources.length) {
-        const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join("
-");
-        enrichedContext = "
-
-**CITE YOUR SOURCES:** Use only [1], [2], ... markers matching this list. Never invent markers like 【】 or †L references.
-" + citationList + "
-" + enrichedContext;
+      enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
+      if (searchResult.sources && searchResult.sources.length > 0) {
+        webSources = normalizeWebSources(searchResult.sources);
+        const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n");
+        enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
       }
     }
   }
@@ -5340,18 +5192,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   }
   console.log("aiResult.model:", aiResult.model);
   console.log("aiResult.response preview:", aiResult.response?.substring(0, 100));
-  let response = cleanAnswerArtifacts(aiResult.response);
-  // God-level recovery: never return a useless greeting when the user asked a real question
-  const looksLikeGreeting = /how can i help you today/i.test(response || "") || /i am nexus created by/i.test(response || "");
-  if ((aiResult.model === "fallback" || looksLikeGreeting || aiResult.success === false) && liveSearchContent && String(liveSearchContent).length > 80) {
-    const cleanedSearch = cleanAnswerArtifacts(String(liveSearchContent).slice(0, 3500));
-    response = "Here is what I found from live sources:
-
-" + cleanedSearch;
-    aiResult = { ...aiResult, model: (aiResult.model === "fallback" ? "search-recovery" : aiResult.model), success: true };
-  } else if ((aiResult.model === "fallback" || looksLikeGreeting) && query) {
-    response = cleanAnswerArtifacts("I could not finish generating the full answer just now. Please ask again: "" + String(query).slice(0, 200) + """);
-  }
+  let response = aiResult.response;
   let jsonParsed = null;
   let jsonValid = null;
   if (config.responseFormat === "json") {
@@ -5391,10 +5232,10 @@ ${response}` }], false);
   let relatedQuestions = [];
   const trimmedQuery = String(query || "").trim();
   const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedQuery);
-  if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 12 && !isSmallTalk)) {
+  if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
     try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
-  const normalizedSources = filterRelevantWebSources(query, normalizeWebSources(webSources));
+  const normalizedSources = normalizeWebSources(webSources);
   const presentation = buildPresentationHint(response, normalizedSources, artifact, relatedQuestions);
   return {
     response,
@@ -5405,9 +5246,8 @@ ${response}` }], false);
     confidence: reasoning.reasoning?.confidence || 0.7,
     latency,
     isPremium,
-    searchPerformed: didWebSearch || normalizedSources.length > 0,
+    searchPerformed: reasoning.plan?.needsSearch || false,
     sources: normalizedSources,
-    citations: buildCitations(normalizedSources),
     thinking,
     artifact,
     relatedQuestions,
@@ -5627,15 +5467,7 @@ async function quantumStreaming(gen, stream, mode, metadata, onComplete) {
       totalChunks: chunks.length,
       ...(metadata || {}),
       ...completionMetadata,
-      sources: sourceList.length ? sourceList : (completionMetadata.sources || (metadata && metadata.sources) || []),
-      relatedQuestions: completionMetadata.relatedQuestions || (metadata && metadata.relatedQuestions) || [],
-      searchPerformed: !!(completionMetadata.searchPerformed || (metadata && metadata.searchPerformed) || sourceList.length),
-      presentation: buildPresentationHint(
-        fullResponse,
-        sourceList.length ? sourceList : (completionMetadata.sources || []),
-        completionMetadata.artifact || null,
-        completionMetadata.relatedQuestions || []
-      )
+      presentation: buildPresentationHint(fullResponse, sourceList, null, completionMetadata.relatedQuestions || [])
     });
     return fullResponse;
   } catch (e) {
@@ -5985,7 +5817,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
         const searchResult = await performWebSearch(decision.args?.search_query || message);
         if (searchResult) {
           ultra.searchResult(searchResult.source, searchResult.content);
-          streamSources = filterRelevantWebSources(typeof query !== "undefined" ? query : "", normalizeWebSources(searchResult.sources || []));
+          streamSources = normalizeWebSources(searchResult.sources || []);
           enrichedContext = "\n\n**\u{1F310} SEARCH: " + searchResult.source + "**\n" + searchResult.content + "\n\n" + enrichedContext;
           if (streamSources.length) {
             const citationList = streamSources.map((source, index) => "[" + (index + 1) + "] " + source.title).join("\n");
@@ -8214,9 +8046,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       return new Response(JSON.stringify({ analysis: visionResult.analysis, provider: visionResult.provider }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
   }
-  const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova", "openrouter"];
-  const requestedModel = body.model || body.provider || body.modelPreference || "auto";
-  const modelPreference = allowedModelPreferences.includes(requestedModel) ? requestedModel : "auto";
+  const allowedModelPreferences = ["auto", "gemini", "groq", "mimo", "cerebras", "sambanova"];
+  const modelPreference = allowedModelPreferences.includes(body.model) ? body.model : "auto";
   const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true, modelPreference: modelPreference === "auto" ? undefined : modelPreference });
   await addMessage(env2, ip, auth.userId, sessionId, message, response.response);
   await saveToVectorDB(env2, auth.userId, message, { response: response.response?.substring(0, 500), type: "chat", intent: thinking.action });
@@ -8245,13 +8076,12 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         response: response.response,
         presentation: response.presentation || null,
         sources: response.sources || [],
-        citations: response.citations || buildCitations(response.sources || []),
         relatedQuestions: response.relatedQuestions || [],
         artifact: response.artifact || null,
-        searchPerformed: (response.sources && response.sources.length > 0) || response.searchPerformed === true,
+        searchPerformed: response.searchPerformed === true,
         confidence: response.confidence ?? null,
         language: response.language || targetLanguage,
-        thinking: (body.showThinking === true ? response.thinking : (response.thinking ? String(response.thinking).split(/\n/).slice(0, 1).join(" ").slice(0, 160) : null)),
+        thinking: response.thinking,
         intent: thinking.action,
         model: response.model,
         latency: Date.now() - startTime,
@@ -8276,13 +8106,12 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     ...response.json !== void 0 ? { json: response.json, jsonValid: response.jsonValid } : {},
     presentation: response.presentation || null,
     sources: response.sources || [],
-    citations: response.citations || buildCitations(response.sources || []),
     relatedQuestions: response.relatedQuestions || [],
     artifact: response.artifact || null,
-    searchPerformed: (response.sources && response.sources.length > 0) || response.searchPerformed === true,
+    searchPerformed: response.searchPerformed === true,
     confidence: response.confidence ?? null,
     language: response.language || targetLanguage,
-    thinking: (body.showThinking === true ? response.thinking : (response.thinking ? String(response.thinking).split(/\n/).slice(0, 1).join(" ").slice(0, 160) : null)),
+    thinking: response.thinking,
     intent: thinking.action,
     model: response.model,
     latency: Date.now() - startTime,
@@ -8413,7 +8242,7 @@ __name(handleFileAnalysisAction, "handleFileAnalysisAction");
 __name2(handleFileAnalysisAction, "handleFileAnalysisAction");
 __name22(handleFileAnalysisAction, "handleFileAnalysisAction");
 async function handleQRAction(body) {
-  const text = body.text || body.data || body.message || body.content;
+  const text = body.text || body.data;
   if (!text)
     return new Response(JSON.stringify({ error: "Text required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   const qr = await generateQRCodeQuantum(text, body.size || 300);
