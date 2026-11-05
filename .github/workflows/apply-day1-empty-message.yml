@@ -1,0 +1,25 @@
+name: Apply day1 empty message
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_day1_empty_message.py'
+      - '.github/workflows/apply-day1-empty-message.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/apply_day1_empty_message.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "fix(day1): reject empty chat message with EMPTY_MESSAGE"
+          git push origin HEAD:main
