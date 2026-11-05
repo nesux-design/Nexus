@@ -3101,7 +3101,7 @@ async function quantumAIOrchestrator(prompt, messages, options) {
     });
   }
   return {
-    response: "I am " + CONFIG.APP_NAME + " created by " + CONFIG.CREATOR + ". How can I help you today?",
+    response: "I could not reach any language model just now (all providers failed or timed out). Please retry in a moment.",
     model: "fallback",
     success: false
   };
@@ -5511,7 +5511,7 @@ async function* quantumStreamGenerator(messages, prompt) {
     }
   }
   yield {
-    text: CONFIG.APP_NAME + " by " + CONFIG.CREATOR + " - How can I help you today?",
+    text: "I could not reach any language model just now. Please retry in a moment.",
     provider: "fallback"
   };
 }
@@ -8242,7 +8242,7 @@ __name(handleFileAnalysisAction, "handleFileAnalysisAction");
 __name2(handleFileAnalysisAction, "handleFileAnalysisAction");
 __name22(handleFileAnalysisAction, "handleFileAnalysisAction");
 async function handleQRAction(body) {
-  const text = body.text || body.data;
+  const text = body.text || body.data || body.message || body.content;
   if (!text)
     return new Response(JSON.stringify({ error: "Text required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   const qr = await generateQRCodeQuantum(text, body.size || 300);
