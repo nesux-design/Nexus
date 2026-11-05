@@ -1,0 +1,27 @@
+name: Apply day1 reliability
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_day1_reliability.py'
+      - '.github/workflows/apply-day1-reliability.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_day1_reliability.py
+      - name: Commit worker
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/DAY1-API-NOTES.md
+          git diff --staged --quiet || git commit -m "fix(day1): honest provider fallback, QR aliases, empty message guard"
+          git push origin HEAD:main
