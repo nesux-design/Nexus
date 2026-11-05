@@ -7798,6 +7798,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       image = btoa(binary);
     }
   }
+  if (!message || !String(message).trim()) {
+    return new Response(JSON.stringify({ error: "message is required", code: "EMPTY_MESSAGE" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
   if (message && /\b(remember|yaad\s*rakh)/i.test(message)) {
     const memSystemAuto = new MemorySystem(env2, auth.userId, auth.supabase);
     memSystemAuto.saveExplicitMemory(message.trim()).catch((e) => console.error("auto memory save failed:", e.message));
