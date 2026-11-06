@@ -1,0 +1,27 @@
+name: Apply day4 memory tiers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_day4_memory_tiers.py'
+      - '.github/workflows/apply-day4-memory.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_day4_memory_tiers.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/DAY4-MEMORY-NOTES.md
+          git diff --staged --quiet || git commit -m "feat(day4): plan-tier memory limits, guards, availableActions"
+          git push origin HEAD:main
