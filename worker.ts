@@ -5237,10 +5237,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   if (reasoning.plan && reasoning.plan.needsSearch) {
     const searchQuota = await checkUsageLimit2026(env2, userId, "search");
     if (!searchQuota.allowed) {
-      enrichedContext = "
-
-(Live web search skipped: daily search limit reached for this plan.)
-" + enrichedContext;
+      enrichedContext = "\n\n(Live web search skipped: daily search limit reached for this plan.)\n" + enrichedContext;
     } else {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
