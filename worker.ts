@@ -1540,11 +1540,14 @@ async function enhancedAuthenticate(request, env2) {
       return { authenticated: true, method: "supabase_jwt", userId: decoded.userId, email: decoded.email || (userData ? userData.email : null), userData, isPremium: premiumStatus.isPremium, plan: premiumStatus.plan, premiumExpiry: premiumStatus.premiumExpiry, supabase, token };
     }
   }
-  if (legacyKeyMatches && legacyUserId && legacyUserId !== "anonymous") {
-    const premiumStatus = await supabase.getPremiumStatus(legacyUserId);
+  // API key gate: if NEXUS_LEGACY_API_KEY is set it must match; if unset, any non-empty X-API-Key is accepted for worker/dev clients.
+  const legacyKeyOk = env2.NEXUS_LEGACY_API_KEY ? apiKey === env2.NEXUS_LEGACY_API_KEY : !!apiKey;
+  if (legacyKeyOk && legacyUserId && legacyUserId !== "anonymous") {
+    let premiumStatus = { isPremium: false, plan: "free", premiumExpiry: null };
+    try { premiumStatus = await supabase.getPremiumStatus(legacyUserId); } catch (_) {}
     return { authenticated: true, method: "legacy_api_key", userId: legacyUserId, email: null, userData: null, isPremium: premiumStatus.isPremium || isAdmin(legacyUserId), plan: premiumStatus.plan || "free", premiumExpiry: premiumStatus.premiumExpiry || null, supabase, token: null };
   }
-  if (legacyKeyMatches) {
+  if (legacyKeyOk) {
     return { authenticated: false, method: "anonymous", userId: "anonymous", email: null, userData: null, isPremium: false, plan: "free", premiumExpiry: null, supabase, token: null };
   }
   return { authenticated: false, method: "unauthorized", userId: null, email: null, userData: null, isPremium: false, plan: "free", premiumExpiry: null, supabase, token: null };
@@ -5139,6 +5142,13 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     console.error("Custom instructions fetch error:", e.message);
   }
   if (reasoning.plan && reasoning.plan.needsSearch) {
+    const searchQuota = await checkUsageLimit2026(env2, userId, "search");
+    if (!searchQuota.allowed) {
+      enrichedContext = "
+
+(Live web search skipped: daily search limit reached for this plan.)
+" + enrichedContext;
+    } else {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
@@ -5148,6 +5158,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
         enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
       }
     }
+  }
   }
   let finalPrompt;
   if (isAgentChat && agentPrompt) {
@@ -8403,6 +8414,10 @@ __name(handlePremiumPlansAction, "handlePremiumPlansAction");
 __name2(handlePremiumPlansAction, "handlePremiumPlansAction");
 __name22(handlePremiumPlansAction, "handlePremiumPlansAction");
 async function handleConversationsListAction(env2, auth) {
+  if (!auth.userId || auth.userId === "anonymous") {
+    return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+
   const memorySystem = new MemorySystem(env2, auth.userId, auth.supabase);
   const conversations = await memorySystem.getChatFromSupabase();
   return new Response(JSON.stringify({ success: true, conversations: Array.isArray(conversations) ? conversations : [], total: Array.isArray(conversations) ? conversations.length : 0 }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
@@ -8411,6 +8426,10 @@ __name(handleConversationsListAction, "handleConversationsListAction");
 __name2(handleConversationsListAction, "handleConversationsListAction");
 __name22(handleConversationsListAction, "handleConversationsListAction");
 async function handleConversationsSaveAction(env2, auth, body) {
+  if (!auth.userId || auth.userId === "anonymous") {
+    return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+
   const conversationId = body.conversationId;
   let title = body.title;
   const messages = body.messages;
@@ -8429,6 +8448,10 @@ __name(handleConversationsSaveAction, "handleConversationsSaveAction");
 __name2(handleConversationsSaveAction, "handleConversationsSaveAction");
 __name22(handleConversationsSaveAction, "handleConversationsSaveAction");
 async function handleConversationsDeleteAction(env2, auth, params) {
+  if (!auth.userId || auth.userId === "anonymous") {
+    return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+
   const conversationId = params.conversationId;
   if (!conversationId)
     return new Response(JSON.stringify({ error: "Conversation ID required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
@@ -8440,6 +8463,10 @@ __name(handleConversationsDeleteAction, "handleConversationsDeleteAction");
 __name2(handleConversationsDeleteAction, "handleConversationsDeleteAction");
 __name22(handleConversationsDeleteAction, "handleConversationsDeleteAction");
 async function handleConversationsSearchAction(env2, auth, params) {
+  if (!auth.userId || auth.userId === "anonymous") {
+    return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+
   const query = params.query || "";
   if (!query)
     return new Response(JSON.stringify({ error: "Search query required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
