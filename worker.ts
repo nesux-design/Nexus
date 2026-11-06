@@ -6247,6 +6247,13 @@ async function handleVoiceChatSupreme(request, env2, userId, sessionId) {
         headers: { "Content-Type": "application/json" }
       });
     }
+    const voiceLimit = await checkUsageLimit2026(env2, userId, "voice");
+    if (!voiceLimit.allowed) {
+      return new Response(JSON.stringify({ error: voiceLimit.upgradeMessage || "Daily voice limit reached", code: "VOICE_LIMIT", ...voiceLimit }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+      });
+    }
     const transcript = await divineVoiceToText(audioFile, language);
     if (!transcript.success) {
       return new Response(JSON.stringify({ error: transcript.error }), {
@@ -6699,6 +6706,39 @@ var PREMIUM_TIERS_2026 = {
     support: "dedicated-24x7"
   }
 };
+
+async function getUsageSnapshot2026(env2, userId) {
+  const types = ["messages", "images", "voice", "search", "fileAnalysis", "vision"];
+  if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") {
+    const usage = {};
+    for (const type of types) {
+      usage[type] = { used: 0, limit: Infinity, remaining: Infinity };
+    }
+    return { plan: "enterprise", usage, date: new Date().toISOString().split("T")[0] };
+  }
+  const user = await getUser(env2, userId);
+  const plan = user.plan || "free";
+  const tier = PREMIUM_TIERS_2026[plan] || PREMIUM_TIERS_2026.free;
+  const today = new Date().toISOString().split("T")[0];
+  const usage = {};
+  for (const type of types) {
+    const limit = tier[type];
+    const lim = (limit === undefined || limit === null) ? 5 : limit;
+    if (lim === Infinity) {
+      usage[type] = { used: 0, limit: Infinity, remaining: Infinity };
+      continue;
+    }
+    let used = 0;
+    if (env2 && env2.KV) {
+      const usageKey = "usage2026:" + userId + ":" + type + ":" + today;
+      const raw = await env2.KV.get(usageKey);
+      used = raw ? parseInt(raw, 10) || 0 : 0;
+    }
+    usage[type] = { used, limit: lim, remaining: Math.max(0, lim - used) };
+  }
+  return { plan, usage, date: today, isPremium: !!user.isPremium };
+}
+
 async function checkUsageLimit2026(env2, userId, type) {
   if (isAdmin(userId)) {
     return { allowed: true, remaining: Infinity, tier: "enterprise" };
@@ -8301,22 +8341,30 @@ async function handlePremiumStatusAction(env2, auth) {
       price: 0,
       days: 365
     };
+    const snapAdmin = await getUsageSnapshot2026(env2, auth.userId);
     return new Response(JSON.stringify({
       userId: auth.userId,
       isPremium: true,
       plan: "enterprise",
       premiumExpiry: null,
-      limits: enterpriseTier
+      limits: enterpriseTier,
+      usageToday: snapAdmin.usage,
+      usageDate: snapAdmin.date,
+      role: "admin"
     }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   }
   const user = await getUser(env2, auth.userId);
   const tier = PREMIUM_TIERS_2026[user.plan || "free"];
+  const snap = await getUsageSnapshot2026(env2, auth.userId);
   return new Response(JSON.stringify({
     userId: auth.userId,
     isPremium: user.isPremium || false,
     plan: user.plan || "free",
     premiumExpiry: user.premiumExpiry || null,
-    limits: tier
+    limits: tier,
+    usageToday: snap.usage,
+    usageDate: snap.date,
+    role: (user.isPremium ? "premium" : "free")
   }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handlePremiumStatusAction, "handlePremiumStatusAction");
