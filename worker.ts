@@ -1668,10 +1668,17 @@ var MemorySystem = /* @__PURE__ */ __name2(class {
     try {
       const key = "explicit_memory:" + this.userId;
       const existing = await this.kv.get(key, { type: "json" }) || [];
+      let userRow = { plan: "free", isPremium: false };
+      try { userRow = await getUser(this.env, this.userId); } catch (_) {}
+      const maxMem = getExplicitMemoryLimit(this.userId, userRow);
+      if (maxMem !== Infinity && existing.length >= maxMem) {
+        return { success: false, error: "Explicit memory limit reached for your plan", code: "MEMORY_LIMIT", limit: maxMem, used: existing.length, plan: userRow.plan || "free" };
+      }
       const newEntry = { id: crypto.randomUUID(), fact: String(fact).substring(0, 500), savedAt: (/* @__PURE__ */ new Date()).toISOString() };
-      const updated = [...existing, newEntry].slice(-50);
+      const keep = maxMem === Infinity ? 5000 : maxMem;
+      const updated = [...existing, newEntry].slice(-keep);
       await this.kv.put(key, JSON.stringify(updated));
-      return { success: true, memory: newEntry, total: updated.length };
+      return { success: true, memory: newEntry, total: updated.length, limit: maxMem, plan: userRow.plan || "free" };
     } catch (e) {
       console.error("saveExplicitMemory error:", e.message);
       return { success: false, error: e.message };
@@ -6718,6 +6725,15 @@ var PREMIUM_TIERS_2026 = {
   }
 };
 
+
+function getExplicitMemoryLimit(userId, user) {
+  if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") return Infinity;
+  const plan = (user && user.plan) || "free";
+  if (plan === "enterprise" || plan === "pro") return 500;
+  if (plan === "plus" || (user && user.isPremium)) return 100;
+  return 20; // free
+}
+
 async function getUsageSnapshot2026(env2, userId) {
   const types = ["messages", "images", "voice", "search", "fileAnalysis", "vision"];
   if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") {
@@ -7484,6 +7500,9 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
     case "health":
       return await handleHealthAction();
     case "memory_save": {
+      if (!auth.userId || auth.userId === "anonymous") {
+        return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       if (!body.fact) {
         return new Response(JSON.stringify({ error: "fact is required" }), {
           status: 400,
@@ -7497,13 +7516,22 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
       });
     }
     case "memory_list": {
+      if (!auth.userId || auth.userId === "anonymous") {
+        return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       const memSystem2 = new MemorySystem(env2, auth.userId, auth.supabase);
       const memories = await memSystem2.listExplicitMemories();
-      return new Response(JSON.stringify({ success: true, memories }), {
+      let userRow2 = { plan: "free", isPremium: false };
+      try { userRow2 = await getUser(env2, auth.userId); } catch (_) {}
+      const memLimit = getExplicitMemoryLimit(auth.userId, userRow2);
+      return new Response(JSON.stringify({ success: true, memories, total: (memories || []).length, limit: memLimit, plan: userRow2.plan || "free", role: isAdmin(auth.userId) ? "admin" : (userRow2.isPremium ? "premium" : "free") }), {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
       });
     }
     case "memory_forget": {
+      if (!auth.userId || auth.userId === "anonymous") {
+        return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
       if (!body.memoryId) {
         return new Response(JSON.stringify({ error: "memoryId is required" }), {
           status: 400,
@@ -7801,6 +7829,9 @@ case "integration_status": {
           "conversations_delete",
           "conversations_search",
           "user_profile",
+          "memory_save",
+          "memory_list",
+          "memory_forget",
           "agents_list",
           "image_gallery",
           "health",
