@@ -6726,6 +6726,22 @@ var PREMIUM_TIERS_2026 = {
 };
 
 
+
+function getConversationLimit(userId, user) {
+  if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") return Infinity;
+  const plan = (user && user.plan) || "free";
+  if (plan === "enterprise" || plan === "pro") return 200;
+  if (plan === "plus" || (user && user.isPremium)) return 50;
+  return 10; // free
+}
+function getMessagesPerConversationLimit(userId, user) {
+  if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") return Infinity;
+  const plan = (user && user.plan) || "free";
+  if (plan === "enterprise" || plan === "pro") return 500;
+  if (plan === "plus" || (user && user.isPremium)) return 200;
+  return 40; // free
+}
+
 function getExplicitMemoryLimit(userId, user) {
   if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") return Infinity;
   const plan = (user && user.plan) || "free";
@@ -8451,7 +8467,18 @@ async function handleConversationsListAction(env2, auth) {
 
   const memorySystem = new MemorySystem(env2, auth.userId, auth.supabase);
   const conversations = await memorySystem.getChatFromSupabase();
-  return new Response(JSON.stringify({ success: true, conversations: Array.isArray(conversations) ? conversations : [], total: Array.isArray(conversations) ? conversations.length : 0 }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  const list = Array.isArray(conversations) ? conversations : [];
+  let userRow = { plan: "free", isPremium: false };
+  try { userRow = await getUser(env2, auth.userId); } catch (_) {}
+  const convLimit = getConversationLimit(auth.userId, userRow);
+  return new Response(JSON.stringify({
+    success: true,
+    conversations: list,
+    total: list.length,
+    limit: convLimit,
+    plan: userRow.plan || "free",
+    role: isAdmin(auth.userId) ? "admin" : (userRow.isPremium ? "premium" : "free")
+  }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handleConversationsListAction, "handleConversationsListAction");
 __name2(handleConversationsListAction, "handleConversationsListAction");
@@ -8471,9 +8498,36 @@ async function handleConversationsSaveAction(env2, auth, body) {
     if (firstUserMsg)
       title = await autoGenerateTitle(firstUserMsg);
   }
+  let userRowSave = { plan: "free", isPremium: false };
+  try { userRowSave = await getUser(env2, auth.userId); } catch (_) {}
+  const convLimit = getConversationLimit(auth.userId, userRowSave);
+  const msgLimit = getMessagesPerConversationLimit(auth.userId, userRowSave);
   const memorySystem = new MemorySystem(env2, auth.userId, auth.supabase);
-  const savedId = await memorySystem.saveChatToSupabase(conversationId, messages, title);
-  return new Response(JSON.stringify({ success: true, conversationId: savedId, title: title || void 0 }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  if (!conversationId) {
+    const existing = await memorySystem.getChatFromSupabase();
+    const count = Array.isArray(existing) ? existing.length : 0;
+    if (convLimit !== Infinity && count >= convLimit) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Conversation limit reached for your plan",
+        code: "CONVERSATION_LIMIT",
+        limit: convLimit,
+        used: count,
+        plan: userRowSave.plan || "free"
+      }), { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+  }
+  const trimmedMessages = (msgLimit === Infinity) ? messages : messages.slice(-msgLimit);
+  const savedId = await memorySystem.saveChatToSupabase(conversationId, trimmedMessages, title);
+  return new Response(JSON.stringify({
+    success: true,
+    conversationId: savedId,
+    title: title || void 0,
+    messageCount: trimmedMessages.length,
+    messageLimit: msgLimit,
+    conversationLimit: convLimit,
+    plan: userRowSave.plan || "free"
+  }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handleConversationsSaveAction, "handleConversationsSaveAction");
 __name2(handleConversationsSaveAction, "handleConversationsSaveAction");
