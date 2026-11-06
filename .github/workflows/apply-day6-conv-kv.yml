@@ -1,0 +1,27 @@
+name: Apply day6 conv KV fallback
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_day6_conv_kv_fallback.py'
+      - '.github/workflows/apply-day6-conv-kv.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_day6_conv_kv_fallback.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/DAY6-CONV-KV-NOTES.md
+          git diff --staged --quiet || git commit -m "fix(day6): conversation KV fallback — never return null id"
+          git push origin HEAD:main
