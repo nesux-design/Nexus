@@ -6810,6 +6810,39 @@ var PREMIUM_TIERS_2026 = {
 
 
 
+
+async function getFeatureFlags(env2, userId) {
+  const defaults = {
+    chat: true,
+    image_generate: true,
+    voice: true,
+    web_search: true,
+    plugins: true,
+    mcp: true,
+    memory: true,
+    conversations: true
+  };
+  let globalFlags = {};
+  let userFlags = {};
+  try {
+    if (env2 && env2.KV) {
+      globalFlags = await env2.KV.get("feature_flags:global", { type: "json" }) || {};
+      if (userId) userFlags = await env2.KV.get("feature_flags:user:" + userId, { type: "json" }) || {};
+    }
+  } catch (_) {}
+  return { ...defaults, ...globalFlags, ...userFlags };
+}
+async function setFeatureFlag(env2, scope, key, value) {
+  if (!env2 || !env2.KV) return { success: false, error: "KV unavailable" };
+  const allowed = ["chat", "image_generate", "voice", "web_search", "plugins", "mcp", "memory", "conversations"];
+  if (!allowed.includes(key)) return { success: false, error: "Invalid flag key", allowed };
+  const kvKey = scope === "global" ? "feature_flags:global" : "feature_flags:user:" + scope;
+  const current = await env2.KV.get(kvKey, { type: "json" }) || {};
+  current[key] = !!value;
+  await env2.KV.put(kvKey, JSON.stringify(current));
+  return { success: true, scope, key, value: !!value, flags: current };
+}
+
 function getConversationLimit(userId, user) {
   if (isAdmin(userId) || userId === "akhil" || userId === "8681361916") return Infinity;
   const plan = (user && user.plan) || "free";
@@ -7596,6 +7629,31 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
       return await handleAgentsListAction(env2, auth);
     case "image_gallery":
       return await handleImageGalleryAction(env2, auth);
+    case "feature_flags": {
+      if (!auth.userId || auth.userId === "anonymous") {
+        return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
+      const flags = await getFeatureFlags(env2, auth.userId);
+      return new Response(JSON.stringify({
+        success: true,
+        flags,
+        role: isAdmin(auth.userId) ? "admin" : (auth.isPremium ? "premium" : "free"),
+        userId: auth.userId
+      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "admin_set_feature_flag": {
+      if (!isAdmin(auth.userId) && auth.userId !== "akhil" && auth.userId !== "8681361916") {
+        return new Response(JSON.stringify({ error: "Admin only", code: "ADMIN_REQUIRED" }), { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
+      const flagKey = body.key || body.flag;
+      const flagValue = body.value;
+      const scope = body.userId || body.scope || "global";
+      if (!flagKey || typeof flagValue === "undefined") {
+        return new Response(JSON.stringify({ error: "key and value required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      }
+      const setResult = await setFeatureFlag(env2, scope, flagKey, flagValue);
+      return new Response(JSON.stringify(setResult), { status: setResult.success ? 200 : 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
     case "health":
       return await handleHealthAction();
     case "memory_save": {
@@ -7934,6 +7992,8 @@ case "integration_status": {
           "agents_list",
           "image_gallery",
           "health",
+          "feature_flags",
+          "admin_set_feature_flag",
           "clear_session",
           "integration_status",
           "integration_connect",
@@ -8271,6 +8331,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         latency: Date.now() - startTime,
         isPremium: auth.isPremium,
         plan: auth.plan || "free",
+        role: isAdmin(auth.userId) ? "admin" : (auth.isPremium ? "premium" : "free"),
+        usageToday: (await getUsageSnapshot2026(env2, auth.userId)).usage,
         ttsError: ttsResult.error || "TTS failed",
         streamingAvailable: true
       }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
@@ -8301,6 +8363,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     latency: Date.now() - startTime,
     isPremium: auth.isPremium,
     plan: auth.plan || "free",
+    role: isAdmin(auth.userId) ? "admin" : (auth.isPremium ? "premium" : "free"),
+    usageToday: (await getUsageSnapshot2026(env2, auth.userId)).usage,
     streamingAvailable: true
   }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
