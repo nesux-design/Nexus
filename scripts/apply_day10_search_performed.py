@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Day-10: searchPerformed reflects actual search execution, not needsSearch plan."""
 from pathlib import Path
 
 def main():
@@ -8,44 +7,43 @@ def main():
     changes = []
 
     if "let didRunWebSearch = false" not in t:
-        old = "  let webSources = [];"
-        new = "  let webSources = [];\n  let didRunWebSearch = false;"
-        if old not in t:
-            raise SystemExit("webSources init not found")
-        t = t.replace(old, new, 1)
-        changes.append("didRun-init")
+        if "  let webSources = [];" not in t:
+            raise SystemExit("webSources not found")
+        t = t.replace("  let webSources = [];", "  let webSources = [];\n  let didRunWebSearch = false;", 1)
+        changes.append("init")
 
-    # Mark true only when search content applied
-    old_hit = """    if (searchResult && searchResult.content) {
-      enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;"""
-    # Use the actual unicode as in file - the file may use escape sequences
-    needle = "if (searchResult && searchResult.content) {"
     if "didRunWebSearch = true" not in t:
-        idx = t.find(needle)
+        # Only first occurrence inside quantum search path (has performWebSearch nearby)
+        marker = "    if (searchResult && searchResult.content) {"
+        idx = t.find(marker)
         if idx < 0:
-            raise SystemExit("searchResult content check not found")
-        # insert after the opening brace line
-        insert_at = t.find("\n", idx) + 1
-        t = t[:insert_at] + "      didRunWebSearch = true;\n" + t[insert_at:]
-        changes.append("didRun-true")
+            raise SystemExit("searchResult marker not found")
+        # ensure this is the performWebSearch path
+        window = t[max(0, idx - 400):idx]
+        if "performWebSearch" not in window and "searchQuota" not in window and "searchFlags" not in window:
+            # try next occurrence
+            idx2 = t.find(marker, idx + 1)
+            if idx2 < 0:
+                raise SystemExit("no suitable searchResult block")
+            idx = idx2
+        nl = t.find("\n", idx)
+        t = t[:nl + 1] + "      didRunWebSearch = true;\n" + t[nl + 1:]
+        changes.append("true-flag")
 
-    old_sp = "    searchPerformed: reasoning.plan?.needsSearch || false,"
-    new_sp = "    searchPerformed: didRunWebSearch,"
-    if old_sp in t:
-        t = t.replace(old_sp, new_sp, 1)
-        changes.append("searchPerformed-field")
-    elif "searchPerformed: didRunWebSearch" in t:
+    old = "    searchPerformed: reasoning.plan?.needsSearch || false,"
+    new = "    searchPerformed: didRunWebSearch,"
+    if old in t:
+        t = t.replace(old, new, 1)
+        changes.append("field")
+    elif "searchPerformed: didRunWebSearch," in t:
         pass
     else:
-        raise SystemExit("searchPerformed assignment not found")
+        raise SystemExit("searchPerformed assignment missing")
 
     p.write_text(t)
-    print("changes:", changes or ["none"])
-    if not changes:
-        raise SystemExit("no changes")
-    for li, line in enumerate(t.splitlines(), 1):
-        if line.rstrip().endswith('enrichedContext = "') and '" + enrichedContext' not in line:
-            raise SystemExit(f"broken string line {li}")
+    print("changes:", changes or ["already"])
+    if not changes and "searchPerformed: didRunWebSearch," not in t:
+        raise SystemExit("failed")
 
 if __name__ == "__main__":
     main()
