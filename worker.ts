@@ -6811,6 +6811,33 @@ var PREMIUM_TIERS_2026 = {
 
 
 
+
+function featureFlagKeyForAction(action) {
+  if (!action) return null;
+  if (action === "chat") return "chat";
+  if (action === "voice") return "voice";
+  if (action === "image_generate" || action === "real_photo" || action === "image_edit" || action === "image_enhance") return "image_generate";
+  if (action.startsWith("memory_")) return "memory";
+  if (action.startsWith("conversations_")) return "conversations";
+  if (action === "execute_plugin" || action === "integration_connect" || action === "integration_disconnect" || action === "integration_status") return "plugins";
+  if (action.startsWith("mcp_")) return "mcp";
+  return null;
+}
+async function rejectIfFeatureDisabled(env2, userId, action) {
+  const flagKey = featureFlagKeyForAction(action);
+  if (!flagKey) return null;
+  const flags = await getFeatureFlags(env2, userId);
+  if (flags && flags[flagKey] === false) {
+    return new Response(JSON.stringify({
+      error: "Feature disabled: " + flagKey,
+      code: "FEATURE_DISABLED",
+      flag: flagKey,
+      action
+    }), { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+  return null;
+}
+
 async function getFeatureFlags(env2, userId) {
   const defaults = {
     chat: true,
@@ -7552,6 +7579,8 @@ __name(checkRateLimit, "checkRateLimit");
 __name2(checkRateLimit, "checkRateLimit");
 __name22(checkRateLimit, "checkRateLimit");
 async function handleAction(env2, request, auth, action, body, params, ctx) {
+  const featureBlock = await rejectIfFeatureDisabled(env2, auth.userId, action);
+  if (featureBlock) return featureBlock;
   if (action === "voice") {
     return await handleVoiceChatSupreme(request, env2, auth.userId, params.sessionId || generateId());
   }
