@@ -5235,6 +5235,10 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     console.error("Custom instructions fetch error:", e.message);
   }
   if (reasoning.plan && reasoning.plan.needsSearch) {
+    const searchFlags = await getFeatureFlags(env2, userId);
+    if (searchFlags && searchFlags.web_search === false) {
+      enrichedContext = "\n\n(Live web search skipped: web_search feature is disabled for this user/plan.)\n" + enrichedContext;
+    } else {
     const searchQuota = await checkUsageLimit2026(env2, userId, "search");
     if (!searchQuota.allowed) {
       enrichedContext = "\n\n(Live web search skipped: daily search limit reached for this plan.)\n" + enrichedContext;
@@ -5248,6 +5252,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
         enrichedContext = "\n\n**\u{1F4DA} CITE YOUR SOURCES:** When you use information from the search results, add a numbered citation marker like [1], [2] right after the claim, matching this source list:\n" + citationList + "\n" + enrichedContext;
       }
     }
+  }
   }
   }
   let finalPrompt;
