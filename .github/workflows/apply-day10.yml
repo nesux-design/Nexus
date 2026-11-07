@@ -20,6 +20,7 @@ jobs:
       - run: python3 scripts/apply_day10_search_performed.py
       - run: |
           if grep -n 'enrichedContext = "$' worker.ts; then exit 1; fi
+          grep -q 'didRunWebSearch' worker.ts
       - name: Commit
         run: |
           git config user.name nexus-bot
