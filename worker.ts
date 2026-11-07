@@ -5226,6 +5226,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   ]);
   let enrichedContext = context || "";
   let webSources = [];
+  let didRunWebSearch = false;
   try {
     const userForPrefs = await getUser(env2, userId);
     if (userForPrefs.customInstructions) {
@@ -5245,6 +5246,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     } else {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
+      didRunWebSearch = true;
       enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
       if (searchResult.sources && searchResult.sources.length > 0) {
         webSources = normalizeWebSources(searchResult.sources);
@@ -5352,7 +5354,7 @@ ${response}` }], false);
     confidence: reasoning.reasoning?.confidence || 0.7,
     latency,
     isPremium,
-    searchPerformed: reasoning.plan?.needsSearch || false,
+    searchPerformed: didRunWebSearch,
     sources: normalizedSources,
     thinking,
     artifact,
