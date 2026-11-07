@@ -1131,6 +1131,39 @@ function redirect(url) {
 }
 __name(redirect, "redirect");
 __name2(redirect, "redirect");
+
+function newRequestId() {
+  try { return crypto.randomUUID(); } catch (_) { return "req_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10); }
+}
+function buildSchemaV2Meta(auth, usageToday) {
+  const userId = auth && auth.userId ? auth.userId : null;
+  const isPremium = !!(auth && auth.isPremium);
+  const plan = (auth && auth.plan) || "free";
+  const role = userId && isAdmin(userId) ? "admin" : (isPremium ? "premium" : "free");
+  const meta = {
+    schemaVersion: 2,
+    requestId: newRequestId(),
+    created: (/* @__PURE__ */ new Date()).toISOString(),
+    userId,
+    role,
+    plan,
+    isPremium
+  };
+  if (usageToday) meta.usageToday = usageToday;
+  return meta;
+}
+function apiError(code, message, status = 400, extra = {}) {
+  return new Response(JSON.stringify({
+    success: false,
+    error: message,
+    code,
+    schemaVersion: 2,
+    requestId: newRequestId(),
+    created: (/* @__PURE__ */ new Date()).toISOString(),
+    ...extra
+  }), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+}
+
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -6835,12 +6868,7 @@ async function rejectIfFeatureDisabled(env2, userId, action) {
   if (!flagKey) return null;
   const flags = await getFeatureFlags(env2, userId);
   if (flags && flags[flagKey] === false) {
-    return new Response(JSON.stringify({
-      error: "Feature disabled: " + flagKey,
-      code: "FEATURE_DISABLED",
-      flag: flagKey,
-      action
-    }), { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    return apiError("FEATURE_DISABLED", "Feature disabled: " + flagKey, 403, { flag: flagKey, action });
   }
   return null;
 }
@@ -7997,7 +8025,12 @@ case "integration_status": {
     }
     default:
       return new Response(JSON.stringify({
+        success: false,
         error: "Unknown action",
+        code: "UNKNOWN_ACTION",
+        schemaVersion: 2,
+        requestId: newRequestId(),
+        created: (/* @__PURE__ */ new Date()).toISOString(),
         availableActions: [
           "chat",
           "voice",
@@ -8109,9 +8142,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   }
   const usageCheck = await checkUsageLimit2026(env2, auth.userId, "messages");
   if (!usageCheck.allowed)
-    return new Response(JSON.stringify({ error: usageCheck.upgradeMessage }), { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    return apiError("USAGE_LIMIT", usageCheck.upgradeMessage || "Daily limit reached", 403, { limitType: "messages" });
   if (!message && !image)
-    return new Response(JSON.stringify({ error: "Message or image is required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    return apiError("EMPTY_MESSAGE", "Message or image is required", 400);
   if (streamMode === "typing" || streamMode === "burst" || streamMode === "word" || streamMode === "quantum") {
     const context = await buildContext(env2, ip, auth.userId, sessionId, message);
     const { stream, processPromise } = await ultimateChatHandler(env2, message, context, auth.userId, sessionId, ip, streamMode);
@@ -8370,7 +8403,11 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         role: isAdmin(auth.userId) ? "admin" : (auth.isPremium ? "premium" : "free"),
         usageToday: (await getUsageSnapshot2026(env2, auth.userId)).usage,
         ttsError: ttsResult.error || "TTS failed",
-        streamingAvailable: true
+        streamingAvailable: true,
+        schemaVersion: 2,
+        requestId: newRequestId(),
+        created: (/* @__PURE__ */ new Date()).toISOString(),
+        userId: auth.userId || null
       }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
   }
@@ -8401,7 +8438,11 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     plan: auth.plan || "free",
     role: isAdmin(auth.userId) ? "admin" : (auth.isPremium ? "premium" : "free"),
     usageToday: (await getUsageSnapshot2026(env2, auth.userId)).usage,
-    streamingAvailable: true
+    streamingAvailable: true,
+    schemaVersion: 2,
+    requestId: newRequestId(),
+    created: (/* @__PURE__ */ new Date()).toISOString(),
+    userId: auth.userId || null
   }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handleChatAction, "handleChatAction");
