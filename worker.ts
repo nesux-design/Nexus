@@ -8151,7 +8151,31 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     ctx.waitUntil(processPromise);
     return new Response(stream, { headers: { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Stream-Mode": streamMode } });
   }
-  const sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
+  // THREAD_MODEL_V1
+  let sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
+  let conversationId = body.conversationId || null;
+  let conversationMessages = [];
+  let conversationTitle = body.title || null;
+  try {
+    if (auth.userId && auth.userId !== "anonymous") {
+      const threadMem = new MemorySystem(env2, auth.userId, auth.supabase);
+      if (conversationId) {
+        const existingConv = await threadMem.getChatFromSupabase(conversationId);
+        if (existingConv && Array.isArray(existingConv.messages)) {
+          conversationMessages = existingConv.messages;
+          if (!conversationTitle && existingConv.title) conversationTitle = existingConv.title;
+          const hist = conversationMessages.slice(-20).map((m) => (m.role || "user") + ": " + String(m.content || "").substring(0, 500)).join("
+");
+          if (hist) sessionContext = sessionContext + "
+
+**Conversation history:**
+" + hist;
+        }
+      }
+    }
+  } catch (threadLoadErr) {
+    console.error("thread load error", threadLoadErr && threadLoadErr.message);
+  }
   const session = await getSession(env2, ip, auth.userId, sessionId);
   const thinking = await metaThinking2026(env2, message, sessionContext, !!session.lastImage, session.lastImageDesc, auth.isPremium, auth.userId);
   // FORCE_PLUGIN_FALLBACK: Claude-style — if model skipped tools but user clearly needs a connected plugin, force it
@@ -8363,6 +8387,31 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   const modelPreference = allowedModelPreferences.includes(body.model) ? body.model : "auto";
   const response = await quantumResponse(env2, message, sessionContext, {}, { isPremium: auth.isPremium, userId: auth.userId, targetLanguage, responseFormat: body.response_format, jsonSchema: body.jsonSchema, showThinking: body.showThinking === true, modelPreference: modelPreference === "auto" ? undefined : modelPreference });
   await addMessage(env2, ip, auth.userId, sessionId, message, response.response);
+  try {
+    if (auth.userId && auth.userId !== "anonymous" && message) {
+      const threadMemSave = new MemorySystem(env2, auth.userId, auth.supabase);
+      const nextMessages = [...conversationMessages, { role: "user", content: String(message) }, { role: "assistant", content: String(response.response || "") }];
+      if (!conversationId) {
+        conversationTitle = conversationTitle || String(message).substring(0, 80);
+        // new thread: respect plan conversation cap
+        let userRowThread = { plan: "free", isPremium: false };
+        try { userRowThread = await getUser(env2, auth.userId); } catch (_) {}
+        const convLimit = getConversationLimit(auth.userId, userRowThread);
+        const existingList = await threadMemSave.getChatFromSupabase();
+        const count = Array.isArray(existingList) ? existingList.length : 0;
+        if (convLimit !== Infinity && count >= convLimit) {
+          // still answer, but do not persist new thread
+          console.error("thread cap reached", count, convLimit);
+        } else {
+          conversationId = await threadMemSave.saveChatToSupabase(null, nextMessages, conversationTitle);
+        }
+      } else {
+        conversationId = await threadMemSave.saveChatToSupabase(conversationId, nextMessages, conversationTitle);
+      }
+    }
+  } catch (threadSaveErr) {
+    console.error("thread save error", threadSaveErr && threadSaveErr.message);
+  }
   await saveToVectorDB(env2, auth.userId, message, { response: response.response?.substring(0, 500), type: "chat", intent: thinking.action });
   await updateDailyStat(env2, "messages");
   const shouldReturnTTS = body.tts === true || request.headers.get("X-TTS") === "true";
@@ -8442,7 +8491,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     schemaVersion: 2,
     requestId: newRequestId(),
     created: (/* @__PURE__ */ new Date()).toISOString(),
-    userId: auth.userId || null
+    userId: auth.userId || null,
+    conversationId: conversationId || null,
+    conversationTitle: conversationTitle || null
   }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handleChatAction, "handleChatAction");
