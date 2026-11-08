@@ -7745,7 +7745,7 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
       let userRow2 = { plan: "free", isPremium: false };
       try { userRow2 = await getUser(env2, auth.userId); } catch (_) {}
       const memLimit = getExplicitMemoryLimit(auth.userId, userRow2);
-      return new Response(JSON.stringify({ success: true, memories, total: (memories || []).length, limit: memLimit, plan: userRow2.plan || "free", role: isAdmin(auth.userId) ? "admin" : (userRow2.isPremium ? "premium" : "free") }), {
+      return new Response(JSON.stringify({ success: true, memories, total: (memories || []).length, limit: memLimit, plan: userRow2.plan || "free", role: isAdmin(auth.userId) ? "admin" : (userRow2.isPremium ? "premium" : "free"), schemaVersion: 2, requestId: newRequestId(), created: (/* @__PURE__ */ new Date()).toISOString(), userId: auth.userId || null }), {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
       });
     }
@@ -8109,7 +8109,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     }
   }
   if (!message || !String(message).trim()) {
-    return new Response(JSON.stringify({ error: "message is required", code: "EMPTY_MESSAGE" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    return apiError("EMPTY_MESSAGE", "message is required", 400);
   }
   if (message && /\b(remember|yaad\s*rakh)/i.test(message)) {
     const memSystemAuto = new MemorySystem(env2, auth.userId, auth.supabase);
@@ -8632,7 +8632,10 @@ async function handlePremiumStatusAction(env2, auth) {
       limits: enterpriseTier,
       usageToday: snapAdmin.usage,
       usageDate: snapAdmin.date,
-      role: "admin"
+      role: "admin",
+      schemaVersion: 2,
+      requestId: newRequestId(),
+      created: (/* @__PURE__ */ new Date()).toISOString()
     }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   }
   const user = await getUser(env2, auth.userId);
@@ -8646,7 +8649,10 @@ async function handlePremiumStatusAction(env2, auth) {
     limits: tier,
     usageToday: snap.usage,
     usageDate: snap.date,
-    role: (user.isPremium ? "premium" : "free")
+    role: (user.isPremium ? "premium" : "free"),
+    schemaVersion: 2,
+    requestId: newRequestId(),
+    created: (/* @__PURE__ */ new Date()).toISOString()
   }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handlePremiumStatusAction, "handlePremiumStatusAction");
@@ -8686,7 +8692,7 @@ __name2(handlePremiumPlansAction, "handlePremiumPlansAction");
 __name22(handlePremiumPlansAction, "handlePremiumPlansAction");
 async function handleConversationsListAction(env2, auth) {
   if (!auth.userId || auth.userId === "anonymous") {
-    return new Response(JSON.stringify({ error: "Valid X-User-ID required", code: "USER_REQUIRED" }), { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    return apiError("USER_REQUIRED", "Valid X-User-ID required", 401);
   }
 
   const memorySystem = new MemorySystem(env2, auth.userId, auth.supabase);
@@ -8701,7 +8707,11 @@ async function handleConversationsListAction(env2, auth) {
     total: list.length,
     limit: convLimit,
     plan: userRow.plan || "free",
-    role: isAdmin(auth.userId) ? "admin" : (userRow.isPremium ? "premium" : "free")
+    role: isAdmin(auth.userId) ? "admin" : (userRow.isPremium ? "premium" : "free"),
+    schemaVersion: 2,
+    requestId: newRequestId(),
+    created: (/* @__PURE__ */ new Date()).toISOString(),
+    userId: auth.userId || null
   }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 __name(handleConversationsListAction, "handleConversationsListAction");
