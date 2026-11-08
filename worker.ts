@@ -8151,7 +8151,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     ctx.waitUntil(processPromise);
     return new Response(stream, { headers: { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Stream-Mode": streamMode } });
   }
-  // THREAD_MODEL_V1
+  // THREAD_MODEL_V1_DEPLOY2
   let sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
   let conversationId = body.conversationId || null;
   let conversationMessages = [];
@@ -8456,7 +8456,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         schemaVersion: 2,
         requestId: newRequestId(),
         created: (/* @__PURE__ */ new Date()).toISOString(),
-        userId: auth.userId || null
+        userId: auth.userId || null,
+        conversationId: conversationId || null,
+        conversationTitle: conversationTitle || null
       }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
   }
