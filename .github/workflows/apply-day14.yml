@@ -1,0 +1,30 @@
+name: Apply day14 thread model
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_day14_thread_model.py'
+      - '.github/workflows/apply-day14.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_day14_thread_model.py
+      - run: |
+          if grep -n 'enrichedContext = "$' worker.ts; then exit 1; fi
+          grep -q 'THREAD_MODEL_V1' worker.ts
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/DAY14-THREAD-MODEL.md
+          git diff --staged --quiet || git commit -m "feat(day14): chat auto conversationId + history resume"
+          git push origin HEAD:main
