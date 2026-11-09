@@ -5399,13 +5399,14 @@ __name(quantumResponse, "quantumResponse");
 __name2(quantumResponse, "quantumResponse");
 __name22(quantumResponse, "quantumResponse");
 var UltraStream = /* @__PURE__ */ __name2(class {
-  constructor() {
+  constructor(opts) {
     this.controller = null;
     this.encoder = new TextEncoder();
     this.closed = false;
     this.chunkCount = 0;
     this.totalCharacters = 0;
     this.startTime = Date.now();
+    this.requestId = opts && opts.requestId ? opts.requestId : (typeof newRequestId === "function" ? newRequestId() : null);
   }
   create() {
     const self = this;
@@ -5415,7 +5416,10 @@ var UltraStream = /* @__PURE__ */ __name2(class {
         self.send({
           type: "init",
           timestamp: Date.now(),
-          version: "8.0",
+          version: "2.0",
+          protocol: "nexus-sse-v2",
+          schemaVersion: 2,
+          requestId: self.requestId || null,
           mode: "monster"
         });
       },
@@ -5438,11 +5442,21 @@ var UltraStream = /* @__PURE__ */ __name2(class {
   chunk(text) {
     this.chunkCount = this.chunkCount + 1;
     this.totalCharacters = this.totalCharacters + text.length;
+    // v2 primary event
+    this.send({
+      type: "token",
+      text,
+      index: this.chunkCount
+    });
+    // backward-compatible alias
     this.send({
       type: "chunk",
       text,
       index: this.chunkCount
     });
+  }
+  token(text) {
+    this.chunk(text);
   }
   thinking(reason) {
     this.send({
@@ -5471,6 +5485,8 @@ var UltraStream = /* @__PURE__ */ __name2(class {
         this.send({
           type: "done",
           fullResponse,
+          schemaVersion: 2,
+          requestId: this.requestId || null,
           stats: {
             chunks: this.chunkCount,
             characters: this.totalCharacters,
@@ -5929,7 +5945,7 @@ __name(quantumThinkingStream, "quantumThinkingStream");
 __name2(quantumThinkingStream, "quantumThinkingStream");
 __name22(quantumThinkingStream, "quantumThinkingStream");
 async function ultimateChatHandler(env2, message, context, userId, sessionId, ip, mode) {
-  const ultra = new UltraStream();
+  const ultra = new UltraStream({ requestId: typeof newRequestId === "function" ? newRequestId() : null });
   const stream = ultra.create();
   const processPromise = async function() {
     let fullResponse = "";
@@ -8145,11 +8161,36 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     return apiError("USAGE_LIMIT", usageCheck.upgradeMessage || "Daily limit reached", 403, { limitType: "messages" });
   if (!message && !image)
     return apiError("EMPTY_MESSAGE", "Message or image is required", 400);
-  if (streamMode === "typing" || streamMode === "burst" || streamMode === "word" || streamMode === "quantum") {
-    const context = await buildContext(env2, ip, auth.userId, sessionId, message);
+  if (streamMode === "typing" || streamMode === "burst" || streamMode === "word" || streamMode === "quantum" || streamMode === "sse" || streamMode === "v2") {
+    // STREAM_CONTEXT_V1 — same memory/thread enrichment as non-stream chat
+    let context = await buildContext(env2, ip, auth.userId, sessionId, message);
+    try {
+      if (auth.userId && auth.userId !== "anonymous") {
+        const streamMem = new MemorySystem(env2, auth.userId, auth.supabase);
+        const streamConvId = body.conversationId || null;
+        if (streamConvId) {
+          const existingConv = await streamMem.getChatFromSupabase(streamConvId);
+          if (existingConv && Array.isArray(existingConv.messages)) {
+            const hist = existingConv.messages.slice(-20).map((m) => (m.role || "user") + ": " + String(m.content || "").substring(0, 500)).join("\n");
+            if (hist) context = context + "\n\n**Conversation history:**\n" + hist;
+          }
+        }
+        const facts = await streamMem.listExplicitMemories();
+        if (Array.isArray(facts) && facts.length) {
+          let userRowMem = { plan: "free", isPremium: false };
+          try { userRowMem = await getUser(env2, auth.userId); } catch (_) {}
+          const memCap = getExplicitMemoryLimit(auth.userId, userRowMem);
+          const cap = memCap === Infinity ? 50 : Math.min(memCap, 50);
+          const lines = facts.slice(0, cap).map((m) => "- " + String(m && m.fact != null ? m.fact : m).substring(0, 300));
+          context = context + "\n\n**User memory (explicit facts):**\n" + lines.join("\n");
+        }
+      }
+    } catch (streamCtxErr) {
+      console.error("stream context enrich", streamCtxErr && streamCtxErr.message);
+    }
     const { stream, processPromise } = await ultimateChatHandler(env2, message, context, auth.userId, sessionId, ip, streamMode);
     ctx.waitUntil(processPromise);
-    return new Response(stream, { headers: { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Stream-Mode": streamMode } });
+    return new Response(stream, { headers: { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Stream-Mode": streamMode, "X-Schema-Version": "2" } });
   }
   // THREAD_MODEL_V1_DEPLOY2
   let sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
