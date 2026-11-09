@@ -1153,6 +1153,73 @@ function buildSchemaV2Meta(auth, usageToday) {
   return meta;
 }
 
+
+async function appendAuditLog(env2, entry) {
+  const row = {
+    id: typeof newRequestId === "function" ? newRequestId() : ("aud_" + Date.now()),
+    actor_user_id: entry && entry.actor ? String(entry.actor) : null,
+    action: entry && entry.action ? String(entry.action) : "unknown",
+    target: entry && entry.target != null ? String(entry.target) : null,
+    meta: entry && entry.meta != null ? JSON.stringify(entry.meta) : null,
+    created_at: Date.now()
+  };
+  try {
+    if (env2 && env2.DB) {
+      await env2.DB.prepare(
+        "INSERT INTO audit_log (id, actor_user_id, action, target, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(row.id, row.actor_user_id, row.action, row.target, row.meta, row.created_at).run();
+    }
+  } catch (e) {
+    console.error("audit D1 write failed", e && e.message);
+  }
+  try {
+    if (env2 && env2.KV) {
+      const key = "audit:recent";
+      const existing = await env2.KV.get(key, { type: "json" }) || [];
+      const next = [row, ...(Array.isArray(existing) ? existing : [])].slice(0, 200);
+      await env2.KV.put(key, JSON.stringify(next), { expirationTtl: 60 * 60 * 24 * 30 });
+    }
+  } catch (e2) {
+    console.error("audit KV write failed", e2 && e2.message);
+  }
+  return row;
+}
+async function listAuditLogs(env2, limit) {
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  try {
+    if (env2 && env2.DB) {
+      const res = await env2.DB.prepare(
+        "SELECT id, actor_user_id, action, target, meta, created_at FROM audit_log ORDER BY created_at DESC LIMIT ?"
+      ).bind(lim).all();
+      if (res && Array.isArray(res.results) && res.results.length) {
+        return res.results.map((r) => ({
+          id: r.id,
+          actor: r.actor_user_id,
+          action: r.action,
+          target: r.target,
+          meta: (() => { try { return r.meta ? JSON.parse(r.meta) : null; } catch (_) { return r.meta; } })(),
+          createdAt: r.created_at
+        }));
+      }
+    }
+  } catch (e) {
+    console.error("audit D1 list failed", e && e.message);
+  }
+  try {
+    if (env2 && env2.KV) {
+      const existing = await env2.KV.get("audit:recent", { type: "json" }) || [];
+      return (Array.isArray(existing) ? existing : []).slice(0, lim).map((r) => ({
+        id: r.id,
+        actor: r.actor_user_id,
+        action: r.action,
+        target: r.target,
+        meta: (() => { try { return typeof r.meta === "string" ? JSON.parse(r.meta) : r.meta; } catch (_) { return r.meta; } })(),
+        createdAt: r.created_at
+      }));
+    }
+  } catch (_) {}
+  return [];
+}
 function rateLimitHeaders(rateLimit) {
   if (!rateLimit || rateLimit.allowed === false && rateLimit.remaining == null) return {};
   return {
@@ -1928,6 +1995,7 @@ async function initD1Tables(env2) {
     { name: "daily_stats", sql: "CREATE TABLE IF NOT EXISTS daily_stats (id TEXT PRIMARY KEY, date TEXT UNIQUE, messages INTEGER DEFAULT 0, images INTEGER DEFAULT 0, premium_requests INTEGER DEFAULT 0, premium_activations INTEGER DEFAULT 0, updated_at INTEGER)" },
     { name: "api_usage", sql: "CREATE TABLE IF NOT EXISTS api_usage (id TEXT PRIMARY KEY, user_id TEXT, date TEXT, chat_count INTEGER DEFAULT 0, image_count INTEGER DEFAULT 0, voice_count INTEGER DEFAULT 0, search_count INTEGER DEFAULT 0)" },
     { name: "error_logs", sql: "CREATE TABLE IF NOT EXISTS error_logs (id TEXT PRIMARY KEY, user_id TEXT, error_type TEXT, error_message TEXT, endpoint TEXT, created_at INTEGER)" },
+    { name: "audit_log", sql: "CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, actor_user_id TEXT, action TEXT, target TEXT, meta TEXT, created_at INTEGER)" },
     { name: "message_feedback", sql: "CREATE TABLE IF NOT EXISTS message_feedback (id TEXT PRIMARY KEY, user_id TEXT, conversation_id TEXT, message_index INTEGER, rating TEXT, comment TEXT, created_at INTEGER)" },
     { name: "key_rotation_log", sql: "CREATE TABLE IF NOT EXISTS key_rotation_log (id TEXT PRIMARY KEY, provider TEXT, key_index INTEGER, action TEXT, reason TEXT, created_at INTEGER)" },
     { name: "user_sessions", sql: "CREATE TABLE IF NOT EXISTS user_sessions (id TEXT PRIMARY KEY, user_id TEXT, session_data TEXT, device_info TEXT, last_active INTEGER, created_at INTEGER)" }
@@ -7770,7 +7838,31 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
         return new Response(JSON.stringify({ error: "key and value required" }), { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
       }
       const setResult = await setFeatureFlag(env2, scope, flagKey, flagValue);
-      return new Response(JSON.stringify(setResult), { status: setResult.success ? 200 : 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+      if (setResult && setResult.success) {
+        try {
+          await appendAuditLog(env2, {
+            actor: auth.userId,
+            action: "admin_set_feature_flag",
+            target: String(scope),
+            meta: { key: flagKey, value: flagValue }
+          });
+        } catch (_) {}
+      }
+      return new Response(JSON.stringify({ ...setResult, schemaVersion: 2, requestId: newRequestId(), created: (/* @__PURE__ */ new Date()).toISOString() }), { status: setResult.success ? 200 : 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+    }
+    case "admin_audit_list": {
+      if (!isAdmin(auth.userId) && auth.userId !== "akhil" && auth.userId !== "8681361916") {
+        return apiError("ADMIN_REQUIRED", "Admin only", 403);
+      }
+      const logs = await listAuditLogs(env2, body.limit || 50);
+      return new Response(JSON.stringify({
+        success: true,
+        logs,
+        total: logs.length,
+        schemaVersion: 2,
+        requestId: newRequestId(),
+        created: (/* @__PURE__ */ new Date()).toISOString()
+      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
     }
     case "health":
       return await handleHealthAction();
