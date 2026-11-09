@@ -1,0 +1,31 @@
+name: Apply day20 SSE v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_day20_sse_v2.py'
+      - '.github/workflows/apply-day20.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_day20_sse_v2.py
+      - run: |
+          if grep -nE '\.join\("$|context \+ "$|sessionContext \+ "$|enrichedContext = "$' worker.ts; then exit 1; fi
+          grep -q 'nexus-sse-v2' worker.ts
+          grep -q 'STREAM_CONTEXT_V1' worker.ts
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/DAY20-SSE-V2.md
+          git diff --staged --quiet || git commit -m "feat(day20): SSE v2 protocol + stream memory/thread context"
+          git push origin HEAD:main
