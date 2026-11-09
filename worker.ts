@@ -1152,7 +1152,16 @@ function buildSchemaV2Meta(auth, usageToday) {
   if (usageToday) meta.usageToday = usageToday;
   return meta;
 }
-function apiError(code, message, status = 400, extra = {}) {
+
+function rateLimitHeaders(rateLimit) {
+  if (!rateLimit || rateLimit.allowed === false && rateLimit.remaining == null) return {};
+  return {
+    "X-RateLimit-Limit": String(rateLimit.limit != null ? rateLimit.limit : ""),
+    "X-RateLimit-Remaining": String(rateLimit.remaining != null ? rateLimit.remaining : ""),
+    "X-RateLimit-Reset": String(rateLimit.reset != null ? rateLimit.reset : "")
+  };
+}
+function apiError(code, message, status = 400, extra = {}, extraHeaders = {}) {
   return new Response(JSON.stringify({
     success: false,
     error: message,
@@ -1161,7 +1170,7 @@ function apiError(code, message, status = 400, extra = {}) {
     requestId: newRequestId(),
     created: (/* @__PURE__ */ new Date()).toISOString(),
     ...extra
-  }), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders } });
 }
 
 function jsonResponse(data, status = 200) {
@@ -7616,15 +7625,44 @@ async function checkRateLimit(env2, ip, userId) {
     ipData = { count: 0, reset: now + window };
   if (now > userData.reset)
     userData = { count: 0, reset: now + window };
-  if (ipData.count >= CONFIG.RATE_LIMIT_IP)
-    return { allowed: false, retryAfter: Math.ceil((ipData.reset - now) / 1e3) };
-  if (userId !== "anonymous" && userData.count >= CONFIG.RATE_LIMIT_USER)
-    return { allowed: false, retryAfter: Math.ceil((userData.reset - now) / 1e3) };
+  // RATE_LIMIT_META_V1
+  const ipLimit = CONFIG.RATE_LIMIT_IP;
+  const userLimit = CONFIG.RATE_LIMIT_USER;
+  if (ipData.count >= ipLimit) {
+    return {
+      allowed: false,
+      scope: "ip",
+      limit: ipLimit,
+      remaining: 0,
+      reset: ipData.reset,
+      retryAfter: Math.ceil((ipData.reset - now) / 1e3)
+    };
+  }
+  if (userId !== "anonymous" && userData.count >= userLimit) {
+    return {
+      allowed: false,
+      scope: "user",
+      limit: userLimit,
+      remaining: 0,
+      reset: userData.reset,
+      retryAfter: Math.ceil((userData.reset - now) / 1e3)
+    };
+  }
   ipData.count++;
   if (userId !== "anonymous")
     userData.count++;
   await Promise.all([env2.KV.put(ipKey, JSON.stringify(ipData), { expirationTtl: 60 }), env2.KV.put(userKey, JSON.stringify(userData), { expirationTtl: 60 })]);
-  return { allowed: true };
+  const activeLimit = userId !== "anonymous" ? userLimit : ipLimit;
+  const activeCount = userId !== "anonymous" ? userData.count : ipData.count;
+  const activeReset = userId !== "anonymous" ? userData.reset : ipData.reset;
+  return {
+    allowed: true,
+    scope: userId !== "anonymous" ? "user" : "ip",
+    limit: activeLimit,
+    remaining: Math.max(0, activeLimit - activeCount),
+    reset: activeReset,
+    retryAfter: 0
+  };
 }
 __name(checkRateLimit, "checkRateLimit");
 __name2(checkRateLimit, "checkRateLimit");
@@ -8190,7 +8228,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     }
     const { stream, processPromise } = await ultimateChatHandler(env2, message, context, auth.userId, sessionId, ip, streamMode);
     ctx.waitUntil(processPromise);
-    return new Response(stream, { headers: { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Stream-Mode": streamMode, "X-Schema-Version": "2" } });
+    return new Response(stream, { headers: { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Stream-Mode": streamMode, "X-Schema-Version": "2", ...rateLimitHeaders(typeof globalThis !== "undefined" ? globalThis.__nexusLastRateLimit : null) } });
   }
   // THREAD_MODEL_V1_DEPLOY2
   let sessionContext = await buildContext(env2, ip, auth.userId, sessionId, message);
@@ -8550,7 +8588,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     userId: auth.userId || null,
     conversationId: conversationId || null,
     conversationTitle: conversationTitle || null
-  }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...rateLimitHeaders(typeof globalThis !== "undefined" ? globalThis.__nexusLastRateLimit : null) } });
 }
 __name(handleChatAction, "handleChatAction");
 __name2(handleChatAction, "handleChatAction");
@@ -9572,8 +9610,23 @@ var worker_default = {
       return await handleSlackCommandCenter2026(request, env2);
     const auth = await enhancedAuthenticate(request, env2);
     const rateLimit = await checkRateLimit(env2, ip, auth.userId);
-    if (!rateLimit.allowed)
-      return new Response(JSON.stringify({ error: "Rate limit exceeded", retryAfter: rateLimit.retryAfter }), { status: 429, headers: { ...CORS_HEADERS, "Content-Type": "application/json", "Retry-After": String(rateLimit.retryAfter) } });
+    // RATE_LIMIT_RESPONSE_WRAP_V1
+    try { globalThis.__nexusLastRateLimit = rateLimit; } catch (_) {}
+    if (!rateLimit.allowed) {
+      const rlHeaders = {
+        "Retry-After": String(rateLimit.retryAfter || 60),
+        "X-RateLimit-Limit": String(rateLimit.limit != null ? rateLimit.limit : ""),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(rateLimit.reset != null ? rateLimit.reset : "")
+      };
+      return apiError("RATE_LIMITED", "Rate limit exceeded", 429, {
+        retryAfter: rateLimit.retryAfter,
+        scope: rateLimit.scope || null,
+        limit: rateLimit.limit != null ? rateLimit.limit : null,
+        remaining: 0,
+        reset: rateLimit.reset != null ? rateLimit.reset : null
+      }, rlHeaders);
+    }
     if (pathname === "/execute-plugin" && request.method === "POST") {
       console.log("\u{1F535} /execute-plugin: Direct call");
       try {
