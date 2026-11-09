@@ -8164,12 +8164,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         if (existingConv && Array.isArray(existingConv.messages)) {
           conversationMessages = existingConv.messages;
           if (!conversationTitle && existingConv.title) conversationTitle = existingConv.title;
-          const hist = conversationMessages.slice(-20).map((m) => (m.role || "user") + ": " + String(m.content || "").substring(0, 500)).join("
-");
-          if (hist) sessionContext = sessionContext + "
-
-**Conversation history:**
-" + hist;
+          const hist = conversationMessages.slice(-20).map((m) => (m.role || "user") + ": " + String(m.content || "").substring(0, 500)).join("\n");
+          if (hist) sessionContext = sessionContext + "\n\n**Conversation history:**\n" + hist;
         }
       }
     }
