@@ -7900,7 +7900,6 @@ async function handleAction(env2, request, auth, action, body, params, ctx) {
           await appendAuditLog(env2, {
             actor: auth.userId,
             action: "admin_set_feature_flag",
-          "admin_audit_list",
             target: String(scope),
             meta: { key: flagKey, value: flagValue }
           });
@@ -8267,6 +8266,7 @@ case "integration_status": {
           "health",
           "feature_flags",
           "admin_set_feature_flag",
+          "admin_audit_list",
           "clear_session",
           "integration_status",
           "integration_connect",
