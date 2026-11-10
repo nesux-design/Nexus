@@ -1,0 +1,30 @@
+name: Apply phase B day31 search gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_phase_b_day31_search_gate.py'
+      - '.github/workflows/apply-phase-b-day31b.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_phase_b_day31_search_gate.py
+      - run: |
+          grep -q 'isTrivialChatMessage' worker.ts
+          grep -q 'needsSearch: false' worker.ts
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "feat(phase-b-day31): trivial chat search gate (no forced web search)"
+          git push origin HEAD:main
