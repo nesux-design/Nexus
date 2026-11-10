@@ -3296,6 +3296,18 @@ async function callGeminiOrGroq(prompt, messages, options) {
 __name(callGeminiOrGroq, "callGeminiOrGroq");
 __name2(callGeminiOrGroq, "callGeminiOrGroq");
 __name22(callGeminiOrGroq, "callGeminiOrGroq");
+
+// PHASE_B_DAY32 — normalize model result (string | { content, sources })
+function normalizeModelResult(result) {
+  if (!result) return null;
+  if (typeof result === "string") {
+    return { response: result, sources: [] };
+  }
+  if (typeof result === "object" && result.content) {
+    return { response: result.content, sources: Array.isArray(result.sources) ? result.sources : [] };
+  }
+  return null;
+}
 async function quantumAIOrchestrator(prompt, messages, options) {
   const config = options || {};
   const enableWebSearch = config.webSearch !== false;
@@ -3322,7 +3334,8 @@ async function quantumAIOrchestrator(prompt, messages, options) {
       try {
         const result = await callSpecificModel(modelName, prompt, messages, enableWebSearch);
         if (result) {
-          return { response: result, model: modelName, success: true };
+          const norm = typeof normalizeModelResult === "function" ? normalizeModelResult(result) : null;
+          if (norm) return { response: norm.response, model: modelName, success: true, sources: norm.sources || [] };
         }
       } catch (e) {
       }
@@ -3348,8 +3361,10 @@ async function quantumAIOrchestrator(prompt, messages, options) {
     try {
       const result = await withRetry(() => callSpecificModel(modelName, prompt, messages, enableWebSearch), 1, 400);
       if (result) {
-        console.log("\u2705 Success with model:", modelName);
-        return { response: result, model: modelName, success: true };
+        console.log("✅ Success with model:", modelName);
+        const norm2 = typeof normalizeModelResult === "function" ? normalizeModelResult(result) : (typeof result === "string" ? { response: result, sources: [] } : null);
+        if (!norm2) continue;
+        return { response: norm2.response, model: modelName, success: true, sources: norm2.sources || [] };
       }
     } catch (e) {
       console.error(modelName + " failed:", e.message);
@@ -3554,7 +3569,9 @@ async function callGroqRaw(messages, enableWebSearch) {
 __name(callGroqRaw, "callGroqRaw");
 async function callGroq(messages, enableWebSearch) {
   const result = await callGroqRaw(messages, enableWebSearch);
-  return result ? result.content : null;
+  if (!result || !result.content) return null;
+  // PHASE_B_DAY32 — keep sources from browser_search for envelope honesty
+  return result;
 }
 __name(callGroq, "callGroq");
 __name2(callGroq, "callGroq");
@@ -5518,6 +5535,10 @@ ${response}` }], false);
   const isSmallTalk = typeof isTrivialChatMessage === "function" ? isTrivialChatMessage(trimmedQuery) : /^(hi|hello|hey|thanks|thank you|ok|okay|bye|ping|test)[.!?\s]*$/i.test(trimmedQuery);
   if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
     try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
+  }
+  if (aiResult && Array.isArray(aiResult.sources) && aiResult.sources.length) {
+    didRunWebSearch = true;
+    webSources = (webSources || []).concat(aiResult.sources);
   }
   const normalizedSources = normalizeWebSources(webSources);
   const presentation = buildPresentationHint(response, normalizedSources, artifact, relatedQuestions);
@@ -8394,10 +8415,15 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   let conversationId = body.conversationId || null;
   let conversationMessages = [];
   let conversationTitle = body.title || null;
+  // PHASE_B_DAY32 — assign thread id up front so response envelope never drops it on KV/supabase lag
+  if (!conversationId && auth.userId && auth.userId !== "anonymous") {
+    conversationId = crypto.randomUUID();
+    conversationTitle = conversationTitle || String(message || "").substring(0, 80) || "New Chat";
+  }
   try {
     if (auth.userId && auth.userId !== "anonymous") {
       const threadMem = new MemorySystem(env2, auth.userId, auth.supabase);
-      if (conversationId) {
+      if (conversationId && body.conversationId) {
         const existingConv = await threadMem.getChatFromSupabase(conversationId);
         if (existingConv && Array.isArray(existingConv.messages)) {
           conversationMessages = existingConv.messages;
