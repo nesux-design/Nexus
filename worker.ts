@@ -8463,6 +8463,16 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       thinking.args = { app: forced.app, action: forced.action || forced.tool };
       thinking.reasoning = (thinking.reasoning || "") + " | Forced plugin: " + forced.app + "." + (forced.action || forced.tool);
       thinking.confidence = Math.max(thinking.confidence || 0, 0.92);
+      // PHASE_B_DAY33 — Claude-style steps when force-route wins
+      if (typeof buildPluginThinkingSteps === "function") {
+        thinking.thinking_steps = buildPluginThinkingSteps({
+          message: message,
+          tools: thinking.connected_tools,
+          matched: forced,
+          result: null,
+          phase: "forced"
+        });
+      }
     }
   }
   if (thinking.action === "general_chat" && thinking.mcp_tools && thinking.mcp_tools.length && typeof matchMcpFromMessage === "function") {
@@ -8472,6 +8482,23 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       thinking.args = { connector: forcedMcp.connector, tool: forcedMcp.name };
       thinking.reasoning = (thinking.reasoning || "") + " | Forced MCP: " + forcedMcp.connector + "." + forcedMcp.name;
       thinking.confidence = Math.max(thinking.confidence || 0, 0.9);
+      if (typeof buildMcpThinkingSteps === "function") {
+        thinking.thinking_steps = buildMcpThinkingSteps({
+          message: message,
+          tools: thinking.mcp_tools,
+          matched: forcedMcp,
+          result: null,
+          phase: "forced"
+        });
+      } else if (typeof buildPluginThinkingSteps === "function") {
+        thinking.thinking_steps = buildPluginThinkingSteps({
+          message: message,
+          tools: thinking.connected_tools || [],
+          matched: { app: forcedMcp.connector, tool: forcedMcp.name, action: forcedMcp.name },
+          result: null,
+          phase: "forced"
+        });
+      }
     }
   }
   // If user asks about an app but not connected, nudge reauth instead of fake "I cannot access"
@@ -8721,6 +8748,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
         confidence: response.confidence ?? null,
         language: response.language || targetLanguage,
         thinking: response.thinking,
+        thinking_steps: thinking.thinking_steps || [],
+        connected_tools: thinking.connected_tools || [],
         intent: thinking.action,
         model: response.model,
         latency: Date.now() - startTime,
