@@ -5,6 +5,38 @@
  */
 
 
+
+// PHASE_B_DAY31_TOOL_ROUTER — bind Claude-style plugin + MCP helpers into the Worker bundle
+import {
+  PLUGIN_TOOL_REGISTRY,
+  getPluginToolsForUser,
+  pluginToolsToGeminiDeclarations,
+  pluginToolsToOpenAITools,
+  formatPluginsForThinking,
+  buildPluginThinkingSteps,
+  thinkingStepsToText,
+  matchPluginFromMessage,
+  executePluginLayer,
+  runPluginApi,
+  reauthPayload,
+  parsePluginFunctionName
+} from "./oauth-plugins.js";
+
+import {
+  loadMcpToolsForUser,
+  matchMcpFromMessage,
+  mcpToolsToGeminiDeclarations,
+  mcpToolsToOpenAITools,
+  buildMcpThinkingSteps,
+  formatMcpForThinking,
+  mcpFunctionName,
+  parseMcpFunctionName,
+  listMcpConnectors,
+  listMcpTools,
+  callMcpTool,
+  getMcpOAuthStart
+} from "./mcp-client.js";
+
 // ── Cloudflare bindings + secrets used by this Worker ─────────────────────
 // Built by scanning every `env.X` / `env2.X` reference in the original file.
 interface Env {
