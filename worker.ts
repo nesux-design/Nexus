@@ -3095,7 +3095,32 @@ async function performWebSearch(query) {
 __name(performWebSearch, "performWebSearch");
 __name2(performWebSearch, "performWebSearch");
 __name22(performWebSearch, "performWebSearch");
+
+// PHASE_B_SEARCH_GATE — greetings / pings must not burn search quota
+function isTrivialChatMessage(text) {
+  const q = String(text || "").trim().toLowerCase();
+  if (!q) return true;
+  if (q.length <= 4) return true;
+  if (/^(hi|hello|hey|hii|helo|yo|sup|thanks|thank you|thx|ok|okay|bye|ping|test|hola|namaste)[.!?\s]*$/i.test(q)) return true;
+  if (/^(what'?s up|how are you|kaise ho)[.!?\s]*$/i.test(q)) return true;
+  return false;
+}
 async function multiStageReasoning(query, context, options) {
+  if (typeof isTrivialChatMessage === "function" && isTrivialChatMessage(query)) {
+    return {
+      plan: {
+        needsSearch: false,
+        complexity: "simple",
+        approach: "direct",
+        steps: 1,
+        plan: "Trivial/greeting — no web search"
+      },
+      reasoning: { method: "direct", confidence: 0.9, insights: ["trivial"] },
+      search: null,
+      response: null,
+      model: "search-gate"
+    };
+  }
   const prompt = `Analyze and create PLAN. Return ONLY JSON:
 {"needsSearch":bool,"complexity":"simple/medium/complex","approach":"direct/reasoning/creative/code","steps":1-5,"plan":"brief"}
 
@@ -3131,8 +3156,8 @@ CONTEXT: ${context ? context.substring(0, 300) : "New"}`;
   }
   return {
     plan: {
-      needsSearch: true,
-      complexity: "medium",
+      needsSearch: false,
+      complexity: "simple",
       approach: "direct",
       steps: 1,
       plan: "Process directly"
@@ -5377,7 +5402,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
   } catch (e) {
     console.error("Custom instructions fetch error:", e.message);
   }
-  if (reasoning.plan && reasoning.plan.needsSearch) {
+  if (reasoning.plan && reasoning.plan.needsSearch && !(typeof isTrivialChatMessage === "function" && isTrivialChatMessage(query))) {
     const searchFlags = await getFeatureFlags(env2, userId);
     if (searchFlags && searchFlags.web_search === false) {
       enrichedContext = "\n\n(Live web search skipped: web_search feature is disabled for this user/plan.)\n" + enrichedContext;
@@ -5481,7 +5506,7 @@ ${response}` }], false);
   }
   let relatedQuestions = [];
   const trimmedQuery = String(query || "").trim();
-  const isSmallTalk = /^(hi|hello|hey|thanks|thank you|ok|okay|bye)[.!?\s]*$/i.test(trimmedQuery);
+  const isSmallTalk = typeof isTrivialChatMessage === "function" ? isTrivialChatMessage(trimmedQuery) : /^(hi|hello|hey|thanks|thank you|ok|okay|bye|ping|test)[.!?\s]*$/i.test(trimmedQuery);
   if (config.includeRelatedQuestions === true || (config.includeRelatedQuestions !== false && trimmedQuery.length > 30 && !isSmallTalk)) {
     try { relatedQuestions = await generateRelatedQuestions(env2, query, response); } catch (e) { console.error("Related question generation failed:", e?.message || e); }
   }
