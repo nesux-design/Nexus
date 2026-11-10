@@ -2496,7 +2496,7 @@ __name2(trackApiUsage, "trackApiUsage");
 __name22(trackApiUsage, "trackApiUsage");
 async function generateEmbeddingAttempt(key, text) {
   try {
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=" + key, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "models/gemini-embedding-001", content: { parts: [{ text: text.substring(0, 2e3) }] } }) });
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=" + key, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "models/gemini-embedding-001", content: { parts: [{ text: text.substring(0, 2e3) }] }, outputDimensionality: 1536 }) });
     if (response.ok) {
       const data = await response.json();
       return data.embedding?.values || null;
@@ -3469,6 +3469,7 @@ __name2(callGemini, "callGemini");
 __name22(callGemini, "callGemini");
 async function callGroqRaw(messages, enableWebSearch) {
   const maxAttempts = 3;
+  let forceTools = !!enableWebSearch;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const key = getNextKey("groq");
     if (!key)
@@ -3487,9 +3488,11 @@ async function callGroqRaw(messages, enableWebSearch) {
         stream: false
         // Worker already handles streaming separately
       };
-      if (enableWebSearch) {
+      if (forceTools) {
         body.tools = [{ type: "browser_search" }];
         body.tool_choice = "auto";
+      } else {
+        body.tool_choice = "none";
       }
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -3503,6 +3506,11 @@ async function callGroqRaw(messages, enableWebSearch) {
       if (!response.ok) {
         const err = await response.text();
         console.error(`\u274C Groq Error (${response.status}):`, err);
+        if (response.status === 400 && /tool_use_failed|Tool choice is none|called a tool/i.test(err) && !forceTools) {
+          console.log("Groq: retrying with browser_search enabled after tool_use_failed");
+          forceTools = true;
+          continue;
+        }
         if (response.status === 429) {
           markKeyFailed("groq", key, 60);
           if (attempt < maxAttempts - 1) {
@@ -3510,6 +3518,7 @@ async function callGroqRaw(messages, enableWebSearch) {
             continue;
           }
         }
+        if (attempt < maxAttempts - 1) continue;
         return null;
       }
       const data = await response.json();
@@ -5457,7 +5466,7 @@ ${JSON.stringify(config.jsonSchema)}` : `
   }
   if (!aiResult) {
     aiResult = await quantumAIOrchestrator(finalPrompt, messages, {
-      webSearch: reasoning.plan?.needsSearch || false,
+      webSearch: !!(reasoning.plan?.needsSearch || /\b(news|latest|today|breaking|headline)\b/i.test(String(query || ""))),
       priority: isPremium ? "quality" : "balanced",
       taskType: reasoning.plan?.approach === "code" ? "code" : reasoning.plan?.approach === "creative" ? "creative" : "general",
       env2,
