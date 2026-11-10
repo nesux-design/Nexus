@@ -1,0 +1,31 @@
+name: Apply phase B day31 tool router
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_phase_b_day31_tool_router.py'
+      - '.github/workflows/apply-phase-b-day31.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_phase_b_day31_tool_router.py
+      - run: |
+          grep -q 'PHASE_B_DAY31_TOOL_ROUTER' worker.ts
+          grep -q 'oauth-plugins.js' worker.ts
+          grep -q 'mcp-client.js' worker.ts
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts docs/PHASE-B-DAY31-TOOL-ROUTER.md
+          git diff --staged --quiet || git commit -m "feat(phase-b-day31): import oauth-plugins + mcp-client for live tool router"
+          git push origin HEAD:main
