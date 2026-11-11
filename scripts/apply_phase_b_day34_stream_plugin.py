@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""Phase B Day 34: stream (SSE) path plugin force-route parity with non-stream FORCE_PLUGIN.
-Does not change Groq/search/embedding or non-stream chat.
-"""
+"""Phase B Day 34: stream plugin force-route parity with non-stream FORCE_PLUGIN."""
 from pathlib import Path
 
 def main():
@@ -11,12 +9,24 @@ def main():
         print("already applied")
         return
 
-    old = '''      const decision = await quantumSemanticDecision(message, context, null);
-      ultra.thinking("Reviewing your request and preparing a response.");
-      if (decision.intent === "reminder") {'''
+    marker = 'const decision = await quantumSemanticDecision(message, context, null);'
+    i = t.find(marker)
+    if i < 0:
+        raise SystemExit("decision marker not found")
 
-    new = '''      const decision = await quantumSemanticDecision(message, context, null);
-      ultra.thinking("Reviewing your request and preparing a response.");
+    # Find the reminder if right after thinking line
+    j = t.find('if (decision.intent === "reminder") {', i)
+    if j < 0 or j - i > 400:
+        raise SystemExit("reminder branch not near decision")
+
+    # Keep from decision through thinking, insert before reminder if
+    # Locate end of ultra.thinking(...); line
+    think = t.find('ultra.thinking("Reviewing your request and preparing a response.");', i)
+    if think < 0:
+        raise SystemExit("thinking line not found")
+    insert_at = t.find('\n', think) + 1
+
+    block = r'''
       // PHASE_B_DAY34 — stream path plugin force-route parity with non-stream FORCE_PLUGIN
       try {
         if (userId && userId !== "anonymous" && typeof getPluginToolsForUser === "function" && typeof matchPluginFromMessage === "function" && typeof executePluginNew === "function") {
@@ -80,13 +90,10 @@ def main():
       } catch (pluginStreamErr) {
         console.error("stream plugin force", pluginStreamErr && pluginStreamErr.message);
       }
-      if (decision.intent === "reminder") {'''
-
-    if old not in t:
-        raise SystemExit("anchor not found")
-    t = t.replace(old, new, 1)
+'''
+    t = t[:insert_at] + block + t[insert_at:]
     p.write_text(t)
-    assert "PHASE_B_DAY34" in t
+    assert "PHASE_B_DAY34" in p.read_text()
     print("ok")
 
 if __name__ == "__main__":
