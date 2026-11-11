@@ -1,0 +1,30 @@
+name: Apply phase B day34 stream plugin
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_phase_b_day34_stream_plugin.py'
+      - '.github/workflows/apply-phase-b-day34.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python3 scripts/apply_phase_b_day34_stream_plugin.py
+      - name: esbuild smoke
+        run: |
+          npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "feat(phase-b-day34): SSE stream plugin force-route parity"
+          git push origin HEAD:main
