@@ -6180,6 +6180,65 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
       } catch (pluginStreamErr) {
         console.error("stream plugin force", pluginStreamErr && pluginStreamErr.message);
       }
+      // PHASE_B_DAY35 - stream path MCP force-route parity with non-stream
+      try {
+        if (userId && userId !== "anonymous" && typeof loadMcpToolsForUser === "function" && typeof matchMcpFromMessage === "function" && typeof callMcpTool === "function") {
+          const mcpPack = await loadMcpToolsForUser(env2, userId, { limit: 12 });
+          const mcpTools = (mcpPack && mcpPack.tools) || [];
+          const forcedMcp = matchMcpFromMessage(message, mcpTools);
+          if (forcedMcp && forcedMcp.connector && forcedMcp.name) {
+            ultra.thinking("Using connected MCP: " + forcedMcp.connector + "." + forcedMcp.name);
+            let mcpResult = { success: false, error: "call failed" };
+            try {
+              mcpResult = await callMcpTool(env2, userId, forcedMcp.connector, forcedMcp.name, {});
+            } catch (e) {
+              mcpResult = { success: false, error: e && e.message ? e.message : String(e) };
+            }
+            const steps = typeof buildMcpThinkingSteps === "function"
+              ? buildMcpThinkingSteps({ message, connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult })
+              : [];
+            if (mcpResult && mcpResult.oauth_required) {
+              const msg = (mcpResult.message || "Please reconnect MCP") + (mcpResult.reauth_url ? "\n" + mcpResult.reauth_url : "");
+              ultra.chunk(msg);
+              if (userId !== "anonymous") await addMessage(env2, ip, userId, sessionId, message, msg);
+              ultra.done(msg, { intent: "execute_mcp", thinking_steps: steps, mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult }, model: "mcp" });
+              return;
+            }
+            const answerPrompt = typeof buildMcpAnswerPrompt === "function"
+              ? buildMcpAnswerPrompt(message, forcedMcp.connector, forcedMcp.name, mcpResult)
+              : ("User: " + message + "\nMCP " + forcedMcp.connector + "." + forcedMcp.name + " data:\n" + JSON.stringify(mcpResult).substring(0, 8000));
+            let natural = null;
+            try {
+              const aiOut = await callGeminiOrGroq(answerPrompt, [{ role: "user", content: answerPrompt }], { temperature: 0.4, maxTokens: 1200, useWebSearch: false });
+              natural = (aiOut && (aiOut.result || aiOut.text)) || null;
+            } catch (e) {
+              console.error("stream mcp answer", e && e.message);
+            }
+            if (!natural) {
+              natural = typeof mcpResult === "string" ? mcpResult : JSON.stringify(mcpResult, null, 2).substring(0, 4000);
+            }
+            ultra.thinking("Writing answer from live MCP data");
+            const parts = String(natural).match(/\S+\s*/g) || [String(natural)];
+            fullResponse = "";
+            for (const p of parts) {
+              ultra.chunk(p);
+              fullResponse += p;
+            }
+            if (userId !== "anonymous") {
+              await addMessage(env2, ip, userId, sessionId, message, natural);
+            }
+            ultra.done(natural, {
+              intent: "execute_mcp",
+              thinking_steps: steps,
+              mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult },
+              model: "mcp+llm"
+            });
+            return;
+          }
+        }
+      } catch (mcpStreamErr) {
+        console.error("stream mcp force", mcpStreamErr && mcpStreamErr.message);
+      }
       if (decision.intent === "reminder") {
         const reminderText = decision.args?.reminder_text || message;
         const reminderTime = decision.args?.time_text || message;
