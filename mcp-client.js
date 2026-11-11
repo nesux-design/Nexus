@@ -34,7 +34,7 @@ function mcpBase(env) {
 
 export async function mcpGatewayFetch(env, userId, path, options = {}) {
   const { method = "GET", body = null, headers = {} } = options;
-  const secret = env?.NEXUS_INTERNAL_AUTH_SECRET;
+  const secret = env?.NEXUS_INTERNAL_AUTH_SECRET || env?.NEXUS_AUTH_SECRET || env?.MCP_AUTH_SECRET || env?.NEXUS_HMAC_SECRET;
   const signature = await signNexusUser(userId, secret);
   if (!userId || !signature) {
     return { ok: false, status: 401, error: "Missing NEXUS_INTERNAL_AUTH_SECRET or userId", data: null };
@@ -94,7 +94,7 @@ export async function mcpGatewayFetch(env, userId, path, options = {}) {
 }
 
 export async function listMcpConnectors(env, userId) {
-  const secret = env?.NEXUS_INTERNAL_AUTH_SECRET;
+  const secret = env?.NEXUS_INTERNAL_AUTH_SECRET || env?.NEXUS_AUTH_SECRET || env?.MCP_AUTH_SECRET || env?.NEXUS_HMAC_SECRET;
   if (secret && userId) {
     const r = await mcpGatewayFetch(env, userId, "/connectors", { method: "GET" });
     if (r.ok) return r.data?.connectors || r.data || [];
@@ -202,7 +202,7 @@ export function mcpToolsToOpenAITools(mcpTools) {
 }
 
 export async function loadMcpToolsForUser(env, userId, { connectors = null, limit = 6 } = {}) {
-  if (!env?.NEXUS_INTERNAL_AUTH_SECRET || !userId) {
+  if (!(env?.NEXUS_INTERNAL_AUTH_SECRET || env?.NEXUS_AUTH_SECRET || env?.MCP_AUTH_SECRET || env?.NEXUS_HMAC_SECRET) || !userId) {
     return { tools: [], nameMap: {}, connectors: [], notes: ["MCP secret or userId missing"] };
   }
   let list = connectors;
@@ -297,29 +297,73 @@ export async function getMcpOAuthStart(env, userId, connectorId) {
   };
 }
 
+// PHASE_B_DAY36 — if catalog empty, still try connectors named in the user message
+export async function ensureMcpToolsForMessage(env, userId, message, existing = []) {
+  let tools = Array.isArray(existing) ? existing.slice() : [];
+  if (tools.length) return tools;
+  const m = String(message || "").toLowerCase();
+  const tryIds = [];
+  if (m.includes("cloudflare")) tryIds.push("cloudflare");
+  if (m.includes("github")) tryIds.push("github");
+  if (m.includes("vercel")) tryIds.push("vercel");
+  if (m.includes("netlify")) tryIds.push("netlify");
+  if (m.includes("supabase")) tryIds.push("supabase");
+  if (m.includes("linear")) tryIds.push("linear");
+  if (m.includes("notion")) tryIds.push("notion");
+  if (m.includes("stripe")) tryIds.push("stripe");
+  if (m.includes("sentry")) tryIds.push("sentry");
+  for (const id of tryIds) {
+    try {
+      const res = await listMcpTools(env, userId, id);
+      if (res && res.oauth_required) continue;
+      if (!res || !res.success) continue;
+      for (const tool of res.tools || []) {
+        tools.push({
+          connector: id,
+          name: tool.name,
+          description: tool.description || tool.name,
+          inputSchema: tool.inputSchema || tool.input_schema
+        });
+      }
+    } catch (e) {
+      console.error("ensureMcpToolsForMessage", id, e && e.message);
+    }
+  }
+  return tools;
+}
+
 export function matchMcpFromMessage(message, mcpTools = []) {
   const query = String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (!query || !Array.isArray(mcpTools) || !mcpTools.length) return null;
-  const hasActionVerb = /\b(list|show|get|fetch|search|find|create|update|delete|send|read|write|open|deploy|check|retrieve|add|remove|edit|comment|run|execute|view|look up)\b/i.test(query);
+  const hasActionVerb = /\b(list|show|get|fetch|search|find|create|update|delete|send|read|write|open|deploy|check|retrieve|add|remove|edit|comment|run|execute|view|look up|whoami|identity|profile|batao|dikhao)\b/i.test(query);
+  const wantsIdentity = /\b(whoami|identity|connected identity|profile|mera account|my account)\b/i.test(query);
   const candidates = [];
   for (const tool of mcpTools) {
     if (!tool || !tool.connector || !tool.name) continue;
     const connector = String(tool.connector);
     const name = String(tool.name);
-    const normalizedName = name.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const nameL = name.toLowerCase();
+    const normalizedName = nameL.replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
     const normalizedConnector = connector.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
     const description = String(tool.description || "").toLowerCase();
     let score = 0;
     if (normalizedName && (" " + query + " ").includes(" " + normalizedName + " ")) score += 6;
-    if (name.toLowerCase().replace(/[_-]+/g, "") && query.replace(/\s+/g, "").includes(name.toLowerCase().replace(/[_-]+/g, ""))) score += 5;
-    if (normalizedConnector && (" " + query + " ").includes(" " + normalizedConnector + " ")) score += 2;
+    if (nameL.replace(/[_-]+/g, "") && query.replace(/\s+/g, "").includes(nameL.replace(/[_-]+/g, ""))) score += 5;
+    if (normalizedConnector && (" " + query + " ").includes(" " + normalizedConnector + " ")) score += 3;
+    // PHASE_B_DAY36 — explicit identity / whoami requests
+    if (wantsIdentity && (nameL === "whoami" || nameL === "get_me" || nameL === "getme" || nameL === "me")) score += 10;
+    if (wantsIdentity && normalizedConnector && query.includes(normalizedConnector) && (nameL === "whoami" || nameL.includes("whoami"))) score += 5;
     const terms = description.split(/[^a-z0-9]+/).filter(w => w.length >= 4 && !["with", "from", "that", "this", "your", "into", "user", "list", "data"].includes(w));
     for (const term of terms) if ((" " + query + " ").includes(" " + term + " ")) score += 0.2;
-    if (score >= 5 || (score >= 2.5 && hasActionVerb)) candidates.push({ connector, name, score });
+    if (score >= 5 || (score >= 2.5 && hasActionVerb) || (wantsIdentity && score >= 4)) candidates.push({ connector, name, score });
   }
   candidates.sort((a, b) => b.score - a.score);
   if (!candidates.length) return null;
-  if (candidates.length > 1 && candidates[0].score === candidates[1].score) return null;
+  if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
+    const prefer = candidates.find(c => /^(whoami|get_me)$/i.test(c.name));
+    if (prefer) return { connector: prefer.connector, name: prefer.name };
+    return null;
+  }
   return { connector: candidates[0].connector, name: candidates[0].name };
 }
 

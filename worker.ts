@@ -25,6 +25,7 @@ import {
 import {
   loadMcpToolsForUser,
   matchMcpFromMessage,
+  ensureMcpToolsForMessage,
   mcpToolsToGeminiDeclarations,
   mcpToolsToOpenAITools,
   buildMcpThinkingSteps,
@@ -6184,7 +6185,11 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
       try {
         if (userId && userId !== "anonymous" && typeof loadMcpToolsForUser === "function" && typeof matchMcpFromMessage === "function" && typeof callMcpTool === "function") {
           const mcpPack = await loadMcpToolsForUser(env2, userId, { limit: 12 });
-          const mcpTools = (mcpPack && mcpPack.tools) || [];
+          let mcpTools = (mcpPack && mcpPack.tools) || [];
+          // PHASE_B_DAY36 — fill tools if catalog empty but user named a connector
+          if (typeof ensureMcpToolsForMessage === "function") {
+            mcpTools = await ensureMcpToolsForMessage(env2, userId, message, mcpTools);
+          }
           const forcedMcp = matchMcpFromMessage(message, mcpTools);
           if (forcedMcp && forcedMcp.connector && forcedMcp.name) {
             ultra.thinking("Using connected MCP: " + forcedMcp.connector + "." + forcedMcp.name);
@@ -8596,6 +8601,14 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
           phase: "forced"
         });
       }
+    }
+  }
+  // PHASE_B_DAY36 — ensure MCP tools for named connectors even if catalog was empty
+  if (thinking.action === "general_chat" && typeof ensureMcpToolsForMessage === "function") {
+    try {
+      thinking.mcp_tools = await ensureMcpToolsForMessage(env2, auth.userId, message, thinking.mcp_tools || []);
+    } catch (e) {
+      console.error("ensureMcpToolsForMessage", e && e.message);
     }
   }
   if (thinking.action === "general_chat" && thinking.mcp_tools && thinking.mcp_tools.length && typeof matchMcpFromMessage === "function") {
