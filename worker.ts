@@ -8611,6 +8611,46 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       console.error("ensureMcpToolsForMessage", e && e.message);
     }
   }
+  // PHASE_B_DAY39 — named MCP connector + no tools => force execute_mcp so user gets reauth URL, not CLI tutorial
+  if (thinking.action === "general_chat" && (!thinking.mcp_tools || !thinking.mcp_tools.length) && typeof listMcpTools === "function") {
+    try {
+      const m = String(message || "").toLowerCase();
+      const named = [];
+      if (m.includes("cloudflare")) named.push("cloudflare");
+      if (m.includes("github")) named.push("github");
+      if (m.includes("vercel")) named.push("vercel");
+      if (m.includes("netlify")) named.push("netlify");
+      if (m.includes("supabase")) named.push("supabase");
+      if (m.includes("linear")) named.push("linear");
+      if (m.includes("notion")) named.push("notion");
+      if (m.includes("stripe")) named.push("stripe");
+      if (m.includes("sentry")) named.push("sentry");
+      for (const id of named) {
+        const res = await listMcpTools(env2, auth.userId, id);
+        if (res && res.success && res.tools && res.tools.length) {
+          thinking.mcp_tools = (thinking.mcp_tools || []).concat(
+            res.tools.map((tool) => ({
+              connector: id,
+              name: tool.name,
+              description: tool.description || tool.name,
+              inputSchema: tool.inputSchema || tool.input_schema
+            }))
+          );
+          break;
+        }
+        if (res && (res.oauth_required || res.status === 401)) {
+          const wantsIdentity = /\b(whoami|identity|profile|connected)\b/i.test(m);
+          thinking.action = "execute_mcp";
+          thinking.args = { connector: id, tool: wantsIdentity ? "whoami" : "whoami" };
+          thinking.reasoning = (thinking.reasoning || "") + " | MCP oauth required: " + id;
+          thinking.confidence = Math.max(thinking.confidence || 0, 0.95);
+          break;
+        }
+      }
+    } catch (e) {
+      console.error("PHASE_B_DAY39 mcp oauth probe", e && e.message);
+    }
+  }
   if (thinking.action === "general_chat" && thinking.mcp_tools && thinking.mcp_tools.length && typeof matchMcpFromMessage === "function") {
     const forcedMcp = matchMcpFromMessage(message, thinking.mcp_tools);
     if (forcedMcp) {
