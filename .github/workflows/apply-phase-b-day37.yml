@@ -1,0 +1,33 @@
+name: Apply phase B day37 MCP host
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_phase_b_day37_mcp_host.py'
+      - '.github/workflows/apply-phase-b-day37.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - run: python3 scripts/apply_phase_b_day37_mcp_host.py
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add mcp-client.js
+          if git diff --staged --quiet; then
+            echo "no changes"
+          else
+            git commit -m "feat(phase-b-day37): MCP binding public host for OAuth redirect_uri"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
