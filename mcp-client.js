@@ -55,7 +55,9 @@ export async function mcpGatewayFetch(env, userId, path, options = {}) {
   let res;
   try {
     if (env?.NEXUS_MCP_SERVER && typeof env.NEXUS_MCP_SERVER.fetch === "function") {
-      res = await env.NEXUS_MCP_SERVER.fetch(`https://mcp-internal${pathClean}`, {
+      // PHASE_B_DAY37 — use public MCP host (not mcp-internal) so OAuth redirect_uri is valid
+      const base = String(mcpBase(env)).replace(/\/$/, "");
+      res = await env.NEXUS_MCP_SERVER.fetch(`${base}${pathClean}`, {
         method,
         headers: h,
         body: method === "GET" || method === "HEAD" ? undefined : payload,
