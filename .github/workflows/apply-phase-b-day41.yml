@@ -1,0 +1,38 @@
+name: Apply phase B day41 MCP force
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_phase_b_day41_mcp_force.py'
+      - '.github/workflows/apply-phase-b-day41.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply day41
+        run: python3 scripts/apply_phase_b_day41_mcp_force.py
+      - name: Refuse PLACEHOLDER
+        run: |
+          if grep -q PLACEHOLDER_WILL_FAIL worker.ts; then echo ABORT; exit 1; fi
+          test $(wc -c < worker.ts) -gt 10000
+          grep -q 'PHASE_B_DAY41' worker.ts
+      - name: esbuild smoke
+        run: npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          if git diff --staged --quiet; then echo no changes; else
+            git commit -m "fix(phase-b-day41): MCP oauth probe even when other tools loaded + broader oauth detect"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
