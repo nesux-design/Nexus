@@ -122,11 +122,15 @@ export async function listMcpTools(env, userId, connector) {
     body: rpc
   });
   if (!r.ok) {
+    const errStr = String(r.error || (r.data && (r.data.error || r.data.message)) || "");
+    const oauthNeeded =
+      r.status === 401 ||
+      /provider_authorization_required|oauth_required|authorization required|unauthorized/i.test(errStr);
     return {
       success: false,
       status: r.status,
       error: r.error,
-      oauth_required: r.status === 401,
+      oauth_required: oauthNeeded,
       wwwAuthenticate: r.wwwAuthenticate,
       tools: []
     };
@@ -151,11 +155,15 @@ export async function callMcpTool(env, userId, connector, name, args = {}) {
     body: rpc
   });
   if (!r.ok) {
+    const errStr = String(r.error || (r.data && (r.data.error || r.data.message)) || "");
+    const oauthNeeded =
+      r.status === 401 ||
+      /provider_authorization_required|oauth_required|authorization required|unauthorized/i.test(errStr);
     return {
       success: false,
       status: r.status,
       error: r.error,
-      oauth_required: r.status === 401,
+      oauth_required: oauthNeeded,
       wwwAuthenticate: r.wwwAuthenticate,
       data: r.data
     };

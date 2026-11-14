@@ -6190,10 +6190,11 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
           if (typeof ensureMcpToolsForMessage === "function") {
             mcpTools = await ensureMcpToolsForMessage(env2, userId, message, mcpTools);
           }
-          // PHASE_B_DAY40 — stream parity: named connector + empty tools => oauth probe
+          // PHASE_B_DAY40 — stream parity: named connector oauth probe
+          // PHASE_B_DAY41 — probe even if other MCP tools already loaded
           let streamForcedConnector = null;
           let streamForcedTool = null;
-          if ((!mcpTools || !mcpTools.length) && typeof listMcpTools === "function") {
+          if (typeof listMcpTools === "function") {
             try {
               const m = String(message || "").toLowerCase();
               const named = [];
@@ -8684,8 +8685,9 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       console.error("ensureMcpToolsForMessage", e && e.message);
     }
   }
-  // PHASE_B_DAY39 — named MCP connector + no tools => force execute_mcp so user gets reauth URL, not CLI tutorial
-  if (thinking.action === "general_chat" && (!thinking.mcp_tools || !thinking.mcp_tools.length) && typeof listMcpTools === "function") {
+  // PHASE_B_DAY39 — named MCP connector => force execute_mcp so user gets reauth URL, not CLI tutorial
+  // PHASE_B_DAY41 — probe even if OTHER connectors already filled mcp_tools (was skipping cloudflare oauth)
+  if (thinking.action === "general_chat" && typeof listMcpTools === "function") {
     try {
       const m = String(message || "").toLowerCase();
       const named = [];
