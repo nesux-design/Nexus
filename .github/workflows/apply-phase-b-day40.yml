@@ -18,7 +18,16 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - run: python3 scripts/apply_phase_b_day40_mcp_reauth.py
+      - name: Restore worker.ts from day39 if corrupted
+        run: |
+          if [ ! -s worker.ts ] || grep -q 'PLACEHOLDER_WILL_FAIL' worker.ts || ! grep -q 'PHASE_B_DAY39' worker.ts; then
+            echo "Restoring worker.ts from day39 baseline"
+            curl -fsSL "https://raw.githubusercontent.com/nesux-design/Nexus/6d523c8c6c23715e5a959b4aa35afdf3c1311596/worker.ts" -o worker.ts
+          fi
+          wc -c worker.ts
+          grep -c PHASE_B_DAY39 worker.ts || true
+      - name: Apply day40 patch
+        run: python3 scripts/apply_phase_b_day40_mcp_reauth.py
       - name: esbuild smoke
         run: |
           npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
