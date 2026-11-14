@@ -2,11 +2,6 @@ name: Apply phase B day40 MCP reauth
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/apply_phase_b_day40_mcp_reauth.py'
-      - '.github/workflows/apply-phase-b-day40.yml'
 
 jobs:
   apply:
@@ -18,16 +13,202 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Restore worker.ts from day39 if corrupted
+      - name: Restore + patch worker.ts
         run: |
-          if [ ! -s worker.ts ] || grep -q 'PLACEHOLDER_WILL_FAIL' worker.ts || ! grep -q 'PHASE_B_DAY39' worker.ts; then
-            echo "Restoring worker.ts from day39 baseline"
-            curl -fsSL "https://raw.githubusercontent.com/nesux-design/Nexus/6d523c8c6c23715e5a959b4aa35afdf3c1311596/worker.ts" -o worker.ts
-          fi
-          wc -c worker.ts
-          grep -c PHASE_B_DAY39 worker.ts || true
-      - name: Apply day40 patch
-        run: python3 scripts/apply_phase_b_day40_mcp_reauth.py
+          set -e
+          curl -fsSL "https://raw.githubusercontent.com/nesux-design/Nexus/6d523c8c6c23715e5a959b4aa35afdf3c1311596/worker.ts" -o worker.ts
+          python3 << 'PY'
+          from pathlib import Path
+          t = Path("worker.ts").read_text()
+          if "PHASE_B_DAY40" in t:
+              print("already applied")
+              raise SystemExit(0)
+          old = """          // PHASE_B_DAY36 \u2014 fill tools if catalog empty but user named a connector
+                    if (typeof ensureMcpToolsForMessage === \"function\") {
+                      mcpTools = await ensureMcpToolsForMessage(env2, userId, message, mcpTools);
+                    }
+                    const forcedMcp = matchMcpFromMessage(message, mcpTools);
+                    if (forcedMcp && forcedMcp.connector && forcedMcp.name) {
+                      ultra.thinking(\"Using connected MCP: \" + forcedMcp.connector + \".\" + forcedMcp.name);
+                      let mcpResult = { success: false, error: \"call failed\" };
+                      try {
+                        mcpResult = await callMcpTool(env2, userId, forcedMcp.connector, forcedMcp.name, {});
+                      } catch (e) {
+                        mcpResult = { success: false, error: e && e.message ? e.message : String(e) };
+                      }
+                      const steps = typeof buildMcpThinkingSteps === \"function\"
+                        ? buildMcpThinkingSteps({ message, connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult })
+                        : [];
+                      if (mcpResult && mcpResult.oauth_required) {
+                        const msg = (mcpResult.message || \"Please reconnect MCP\") + (mcpResult.reauth_url ? \"\\n\" + mcpResult.reauth_url : \"\");
+                        ultra.chunk(msg);
+                        if (userId !== \"anonymous\") await addMessage(env2, ip, userId, sessionId, message, msg);
+                        ultra.done(msg, { intent: \"execute_mcp\", thinking_steps: steps, mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult }, model: \"mcp\" });
+                        return;
+                      }""".replace("\\u2014", "\u2014")
+          # Fix: build old from real file slice instead
+          start = t.find("// PHASE_B_DAY36")
+          # use second occurrence is stream - find after DAY35
+          d35 = t.find("PHASE_B_DAY35")
+          start = t.find("// PHASE_B_DAY36", d35)
+          end_marker = "const answerPrompt = typeof buildMcpAnswerPrompt"
+          end = t.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit(f"anchors not found start={start} end={end}")
+          # replace from after ensure block through oauth return
+          block_start = t.find("if (typeof ensureMcpToolsForMessage", start)
+          # go back to include comment line
+          block_start = t.rfind("// PHASE_B_DAY36", 0, block_start)
+          block_end = t.find(end_marker, block_start)
+          old_block = t[block_start:block_end]
+          new_block = Path("/dev/stdin").read_text() if False else None
+          print("old_block len", len(old_block))
+          print("ok anchors")
+          # Write marker-only safety commit of restored worker first
+          Path("worker.ts").write_text(t)
+          print("restored pure day39", len(t))
+          PY
+      - name: Apply day40 via local python file from curl good script
+        run: |
+          set -e
+          # Use Python that constructs match from live file content (no fragile escapes)
+          python3 << 'PY'
+          from pathlib import Path
+          t = Path("worker.ts").read_text()
+          if "PHASE_B_DAY40" in t:
+              print("already applied")
+              raise SystemExit(0)
+          d35 = t.find("PHASE_B_DAY35")
+          assert d35 > 0
+          cmt = t.find("// PHASE_B_DAY36", d35)
+          ans = t.find("const answerPrompt = typeof buildMcpAnswerPrompt", cmt)
+          assert cmt > 0 and ans > 0
+          old_block = t[cmt:ans]
+          insert = '''// PHASE_B_DAY36 — fill tools if catalog empty but user named a connector
+          if (typeof ensureMcpToolsForMessage === "function") {
+            mcpTools = await ensureMcpToolsForMessage(env2, userId, message, mcpTools);
+          }
+          // PHASE_B_DAY40 — stream parity: named connector + empty tools => oauth probe (same as non-stream day39)
+          let streamForcedConnector = null;
+          let streamForcedTool = null;
+          if ((!mcpTools || !mcpTools.length) && typeof listMcpTools === "function") {
+            try {
+              const m = String(message || "").toLowerCase();
+              const named = [];
+              if (m.includes("cloudflare")) named.push("cloudflare");
+              if (m.includes("github")) named.push("github");
+              if (m.includes("vercel")) named.push("vercel");
+              if (m.includes("netlify")) named.push("netlify");
+              if (m.includes("supabase")) named.push("supabase");
+              if (m.includes("linear")) named.push("linear");
+              if (m.includes("notion")) named.push("notion");
+              if (m.includes("stripe")) named.push("stripe");
+              if (m.includes("sentry")) named.push("sentry");
+              if (m.includes("atlassian") || m.includes("jira") || m.includes("confluence")) named.push("atlassian");
+              if (m.includes("asana")) named.push("asana");
+              if (m.includes("canva")) named.push("canva");
+              for (const id of named) {
+                const res = await listMcpTools(env2, userId, id);
+                if (res && res.success && res.tools && res.tools.length) {
+                  mcpTools = (mcpTools || []).concat(
+                    res.tools.map((tool) => ({
+                      connector: id,
+                      name: tool.name,
+                      description: tool.description || tool.name,
+                      inputSchema: tool.inputSchema || tool.input_schema
+                    }))
+                  );
+                  break;
+                }
+                if (res && (res.oauth_required || res.status === 401)) {
+                  streamForcedConnector = id;
+                  streamForcedTool = /\\b(whoami|identity|profile|connected)\\b/i.test(m) ? "whoami" : "whoami";
+                  break;
+                }
+              }
+            } catch (e) {
+              console.error("PHASE_B_DAY40 stream mcp oauth probe", e && e.message);
+            }
+          }
+          if (streamForcedConnector && typeof callMcpTool === "function") {
+            ultra.thinking("MCP needs authorization: " + streamForcedConnector);
+            let authStart = null;
+            try {
+              if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, streamForcedConnector);
+            } catch (_) {}
+            const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
+            const msg = authUrl
+              ? ("**" + streamForcedConnector + "** MCP connect karo, phir same sawaal poochho.\\n\\nAuthorize: " + authUrl)
+              : ("**" + streamForcedConnector + "** MCP authorize karna hoga. Action `mcp_oauth_start` with connector `" + streamForcedConnector + "` use karo.");
+            ultra.chunk(msg);
+            if (userId !== "anonymous") await addMessage(env2, ip, userId, sessionId, message, msg);
+            ultra.done(msg, {
+              intent: "execute_mcp",
+              thinking_steps: [
+                { title: "Understanding request", detail: String(message).substring(0, 120), status: "done" },
+                { title: "MCP oauth required", detail: streamForcedConnector, status: "blocked" },
+                { title: "Authorize URL", detail: authUrl || "mcp_oauth_start", status: "done" }
+              ],
+              mcp: { connector: streamForcedConnector, tool: streamForcedTool, oauth_required: true, authorize_url: authUrl },
+              model: "mcp"
+            });
+            return;
+          }
+          const forcedMcp = matchMcpFromMessage(message, mcpTools);
+          if (forcedMcp && forcedMcp.connector && forcedMcp.name) {
+            ultra.thinking("Using connected MCP: " + forcedMcp.connector + "." + forcedMcp.name);
+            let mcpResult = { success: false, error: "call failed" };
+            try {
+              mcpResult = await callMcpTool(env2, userId, forcedMcp.connector, forcedMcp.name, {});
+            } catch (e) {
+              mcpResult = { success: false, error: e && e.message ? e.message : String(e) };
+            }
+            const steps = typeof buildMcpThinkingSteps === "function"
+              ? buildMcpThinkingSteps({ message, connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult })
+              : [];
+            if (mcpResult && mcpResult.oauth_required) {
+              // PHASE_B_DAY40 — real authorize_url (not bare "Please reconnect")
+              let authStart = null;
+              try {
+                if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, forcedMcp.connector);
+              } catch (_) {}
+              const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || mcpResult.reauth_url || null;
+              const msg = authUrl
+                ? ("Please authorize MCP **" + forcedMcp.connector + "** first, then ask again.\\n\\n" + authUrl)
+                : ((mcpResult.message || "Please reconnect MCP **" + forcedMcp.connector + "**") + (mcpResult.reauth_url ? "\\n" + mcpResult.reauth_url : ""));
+              ultra.chunk(msg);
+              if (userId !== "anonymous") await addMessage(env2, ip, userId, sessionId, message, msg);
+              ultra.done(msg, { intent: "execute_mcp", thinking_steps: steps, mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult, authorize_url: authUrl }, model: "mcp" });
+              return;
+            }
+'''
+          # decode double-escaped newlines for TS source
+          insert = insert.replace("\\\\n", "\\n").replace("\\\\b", "\\b")
+          t2 = t[:cmt] + insert + t[ans:]
+          # nonstream oauth enrich
+          needle = 'const msg = "Please authorize MCP **" + connector + "** first." + (authStart && authStart.authorize_url ? ("\\n" + authStart.authorize_url) : "");'
+          # find non-stream oauth block via unique comment context after execute_mcp
+          idx = t2.find("Please authorize MCP **")
+          if idx > 0 and "PHASE_B_DAY40 — Claude-style reauth" not in t2:
+              # replace nearby msg assignment
+              old_line_start = t2.rfind("\n", 0, idx)
+              # simpler: replace authorize mcp result object once
+              old_mcp = "mcp: { connector, tool: toolName, result: mcpResult },\n          model: \"mcp\","
+              new_mcp = "mcp: { connector, tool: toolName, result: mcpResult, oauth_required: true, authorize_url: authUrl },\n          model: \"mcp\","
+              # inject authUrl before msg
+              marker = "try { authStart = await getMcpOAuthStart(env2, auth.userId, connector); } catch (_) {}"
+              if marker in t2 and "const authUrl = (authStart" not in t2:
+                  t2 = t2.replace(marker, marker + "\n      const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;", 1)
+                  t2 = t2.replace(
+                      'const msg = "Please authorize MCP **" + connector + "** first." + (authStart && authStart.authorize_url ? ("\\n" + authStart.authorize_url) : "");',
+                      'const msg = authUrl\n        ? ("Please authorize MCP **" + connector + "** first, then ask the same question again.\\n\\n" + authUrl)\n        : ("Please authorize MCP **" + connector + "** first. Use action `mcp_oauth_start` with connector `" + connector + "`.");',
+                      1
+                  )
+                  t2 = t2.replace("mcp: { connector, tool: toolName, result: mcpResult },", "mcp: { connector, tool: toolName, result: mcpResult, oauth_required: true, authorize_url: authUrl },", 1)
+          Path("worker.ts").write_text(t2)
+          print("applied", t2.count("PHASE_B_DAY40"), "len", len(t2), "braces", t2.count("{"), t2.count("}"))
+          assert t2.count("{") == t2.count("}")
+          PY
       - name: esbuild smoke
         run: |
           npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
