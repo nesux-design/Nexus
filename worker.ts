@@ -6190,6 +6190,71 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
           if (typeof ensureMcpToolsForMessage === "function") {
             mcpTools = await ensureMcpToolsForMessage(env2, userId, message, mcpTools);
           }
+          // PHASE_B_DAY40 — stream parity: named connector + empty tools => oauth probe
+          let streamForcedConnector = null;
+          let streamForcedTool = null;
+          if ((!mcpTools || !mcpTools.length) && typeof listMcpTools === "function") {
+            try {
+              const m = String(message || "").toLowerCase();
+              const named = [];
+              if (m.includes("cloudflare")) named.push("cloudflare");
+              if (m.includes("github")) named.push("github");
+              if (m.includes("vercel")) named.push("vercel");
+              if (m.includes("netlify")) named.push("netlify");
+              if (m.includes("supabase")) named.push("supabase");
+              if (m.includes("linear")) named.push("linear");
+              if (m.includes("notion")) named.push("notion");
+              if (m.includes("stripe")) named.push("stripe");
+              if (m.includes("sentry")) named.push("sentry");
+              if (m.includes("atlassian") || m.includes("jira") || m.includes("confluence")) named.push("atlassian");
+              if (m.includes("asana")) named.push("asana");
+              if (m.includes("canva")) named.push("canva");
+              for (const id of named) {
+                const res = await listMcpTools(env2, userId, id);
+                if (res && res.success && res.tools && res.tools.length) {
+                  mcpTools = (mcpTools || []).concat(
+                    res.tools.map((tool) => ({
+                      connector: id,
+                      name: tool.name,
+                      description: tool.description || tool.name,
+                      inputSchema: tool.inputSchema || tool.input_schema
+                    }))
+                  );
+                  break;
+                }
+                if (res && (res.oauth_required || res.status === 401)) {
+                  streamForcedConnector = id;
+                  streamForcedTool = "whoami";
+                  break;
+                }
+              }
+            } catch (e) {
+              console.error("PHASE_B_DAY40 stream mcp oauth probe", e && e.message);
+            }
+          }
+          if (streamForcedConnector) {
+            ultra.thinking("MCP needs authorization: " + streamForcedConnector);
+            let authStart = null;
+            try {
+              if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, streamForcedConnector);
+            } catch (_) {}
+            const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
+            const msg = authUrl
+              ? ("**" + streamForcedConnector + "** MCP connect karo, phir same sawaal poochho.\n\nAuthorize: " + authUrl)
+              : ("**" + streamForcedConnector + "** MCP authorize karna hoga. Action `mcp_oauth_start` use karo.");
+            ultra.chunk(msg);
+            if (userId !== "anonymous") await addMessage(env2, ip, userId, sessionId, message, msg);
+            ultra.done(msg, {
+              intent: "execute_mcp",
+              thinking_steps: [
+                { title: "MCP oauth required", detail: streamForcedConnector, status: "blocked" },
+                { title: "Authorize URL", detail: authUrl || "mcp_oauth_start", status: "done" }
+              ],
+              mcp: { connector: streamForcedConnector, tool: streamForcedTool, oauth_required: true, authorize_url: authUrl },
+              model: "mcp"
+            });
+            return;
+          }
           const forcedMcp = matchMcpFromMessage(message, mcpTools);
           if (forcedMcp && forcedMcp.connector && forcedMcp.name) {
             ultra.thinking("Using connected MCP: " + forcedMcp.connector + "." + forcedMcp.name);
@@ -6203,13 +6268,21 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
               ? buildMcpThinkingSteps({ message, connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult })
               : [];
             if (mcpResult && mcpResult.oauth_required) {
-              const msg = (mcpResult.message || "Please reconnect MCP") + (mcpResult.reauth_url ? "\n" + mcpResult.reauth_url : "");
+              // PHASE_B_DAY40 — real authorize_url on stream path
+              let authStart = null;
+              try {
+                if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, forcedMcp.connector);
+              } catch (_) {}
+              const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || mcpResult.reauth_url || null;
+              const msg = authUrl
+                ? ("Please authorize MCP **" + forcedMcp.connector + "** first, then ask again.\n\n" + authUrl)
+                : ((mcpResult.message || "Please reconnect MCP") + (mcpResult.reauth_url ? "\n" + mcpResult.reauth_url : ""));
               ultra.chunk(msg);
               if (userId !== "anonymous") await addMessage(env2, ip, userId, sessionId, message, msg);
-              ultra.done(msg, { intent: "execute_mcp", thinking_steps: steps, mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult }, model: "mcp" });
+              ultra.done(msg, { intent: "execute_mcp", thinking_steps: steps, mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult, authorize_url: authUrl }, model: "mcp" });
               return;
             }
-            const answerPrompt = typeof buildMcpAnswerPrompt === "function"
+const answerPrompt = typeof buildMcpAnswerPrompt === "function"
               ? buildMcpAnswerPrompt(message, forcedMcp.connector, forcedMcp.name, mcpResult)
               : ("User: " + message + "\nMCP " + forcedMcp.connector + "." + forcedMcp.name + " data:\n" + JSON.stringify(mcpResult).substring(0, 8000));
             let natural = null;
@@ -8625,6 +8698,10 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       if (m.includes("notion")) named.push("notion");
       if (m.includes("stripe")) named.push("stripe");
       if (m.includes("sentry")) named.push("sentry");
+      if (m.includes("atlassian") || m.includes("jira") || m.includes("confluence")) named.push("atlassian");
+      if (m.includes("asana")) named.push("asana");
+      if (m.includes("canva")) named.push("canva");
+      // PHASE_B_DAY40 — extra native MCP names
       for (const id of named) {
         const res = await listMcpTools(env2, auth.userId, id);
         if (res && res.success && res.tools && res.tools.length) {
@@ -8758,7 +8835,11 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     if (mcpResult && mcpResult.oauth_required) {
       let authStart = null;
       try { authStart = await getMcpOAuthStart(env2, auth.userId, connector); } catch (_) {}
-      const msg = "Please authorize MCP **" + connector + "** first." + (authStart && authStart.authorize_url ? ("\n" + authStart.authorize_url) : "");
+      // PHASE_B_DAY40 — Claude-style reauth
+      const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
+      const msg = authUrl
+        ? ("Please authorize MCP **" + connector + "** first, then ask the same question again.\n\n" + authUrl)
+        : ("Please authorize MCP **" + connector + "** first. Use action `mcp_oauth_start`.");
       await addMessage(env2, ip, auth.userId, sessionId, message, msg, true);
       // PHASE_B_DAY38 — schema v2 envelope
       {
@@ -8767,7 +8848,7 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
           response: msg,
           thinking_steps: steps,
           intent: "execute_mcp",
-          mcp: { connector, tool: toolName, result: mcpResult },
+          mcp: { connector, tool: toolName, result: mcpResult, oauth_required: true, authorize_url: authUrl },
           model: "mcp",
           presentation: { version: 1, kind: "prose", features: { hasCode: false, hasTable: false, hasLinks: true, hasNumberedSteps: false, hasCitations: false, hasSources: false, hasArtifact: false, hasRelatedQuestions: false } },
           sources: [],
