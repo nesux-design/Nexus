@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - 'worker.ts'
+      - 'mcp-client.js'
+      - 'mcp-gateway-connectors.js'
+      - 'mcp-custom.js'
+      - 'oauth-plugins.js'
       - 'wrangler.toml'
       - '.github/workflows/deploy-worker.yml'
 
@@ -20,8 +24,27 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install wrangler
-        run: npm i -g wrangler@4
+      - name: Refuse broken mcp-client / worker
+        run: |
+          set -e
+          test -f worker.ts
+          test -f mcp-client.js
+          test $(wc -c < worker.ts) -gt 10000
+          test $(wc -c < mcp-client.js) -gt 15000
+          if grep -qx 'PLACEHOLDER' mcp-client.js; then echo 'ABORT: mcp-client is PLACEHOLDER'; exit 1; fi
+          if grep -q 'PLACEHOLDER_WILL_FAIL' worker.ts; then echo 'ABORT: worker PLACEHOLDER'; exit 1; fi
+          grep -q 'PHASE_B_DAY44' mcp-client.js || echo 'WARN: DAY44 marker missing (ok if older)'
+          grep -q 'extractMcpSourcesFromResult' mcp-client.js
+          grep -q 'extractMcpToolArgs' mcp-client.js
+          echo "OK worker=$(wc -c < worker.ts) mcp-client=$(wc -c < mcp-client.js)"
+
+      - name: Install deps + wrangler
+        run: |
+          npm ci || npm i
+          npm i -g wrangler@4
+
+      - name: esbuild smoke
+        run: npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
 
       - name: Deploy to Cloudflare
         env:
@@ -29,8 +52,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "CLOUDFLARE_API_TOKEN secret missing — skip deploy"
-            echo "Add repo secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID, or deploy from CF Dashboard."
+            echo "CLOUDFLARE_API_TOKEN secret missing — skip GH Actions deploy"
+            echo "CF Git integration / Dashboard may still deploy. Add secrets for Actions deploy."
             exit 0
           fi
           wrangler deploy --name nexus-a1
