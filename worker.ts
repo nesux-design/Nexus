@@ -35,6 +35,7 @@ import {
   listMcpConnectors,
   listMcpTools,
   callMcpTool,
+  extractMcpToolArgs,
   getMcpOAuthStart
 } from "./mcp-client.js";
 
@@ -164,6 +165,7 @@ import {
   loadMcpToolsForUser,
   listMcpConnectors,
   callMcpTool,
+  extractMcpToolArgs,
   getMcpOAuthStart,
   listMcpTools,
   mcpToolsToGeminiDeclarations,
@@ -6261,7 +6263,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
             ultra.thinking("Using connected MCP: " + forcedMcp.connector + "." + forcedMcp.name);
             let mcpResult = { success: false, error: "call failed" };
             try {
-              mcpResult = await callMcpTool(env2, userId, forcedMcp.connector, forcedMcp.name, {});
+              mcpResult = await callMcpTool(env2, userId, forcedMcp.connector, forcedMcp.name, (typeof extractMcpToolArgs === "function" ? extractMcpToolArgs(message, forcedMcp.connector, forcedMcp.name, forcedMcp.inputSchema) : {})); // PHASE_B_DAY42
             } catch (e) {
               mcpResult = { success: false, error: e && e.message ? e.message : String(e) };
             }
@@ -8825,6 +8827,11 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     const toolName = thinking.args?.tool || thinking.args?.action || thinking.args?.name;
     const toolArgs = { ...(thinking.args || {}) };
     delete toolArgs.connector; delete toolArgs.app; delete toolArgs.tool; delete toolArgs.action; delete toolArgs.name;
+    // PHASE_B_DAY42 - fill simple args from message when force-route left them empty
+    if (typeof extractMcpToolArgs === "function" && Object.keys(toolArgs || {}).length === 0) {
+      const inferred = extractMcpToolArgs(message, connector, toolName, null);
+      if (inferred && typeof inferred === "object") Object.assign(toolArgs, inferred);
+    }
     let mcpResult = { success: false, error: "callMcpTool unavailable" };
     try {
       mcpResult = await callMcpTool(env2, auth.userId, connector, toolName, toolArgs);

@@ -342,6 +342,38 @@ export async function ensureMcpToolsForMessage(env, userId, message, existing = 
   return tools;
 }
 
+/** PHASE_B_DAY42 - build minimal tool args from user message + optional inputSchema */
+export function extractMcpToolArgs(message, connector, toolName, inputSchema = null) {
+  const args = {};
+  const raw = String(message || "").trim();
+  if (!raw) return args;
+  const nameL = String(toolName || "").toLowerCase();
+  if (/^(whoami|get_me|me|getme)$/i.test(nameL)) return args;
+
+  const schema = inputSchema && typeof inputSchema === "object" ? inputSchema : null;
+  const props = (schema && schema.properties) || {};
+  const required = Array.isArray(schema && schema.required) ? schema.required : [];
+
+  let q = raw
+    .replace(/\b(cloudflare|github|vercel|netlify|supabase|linear|notion|stripe|sentry|atlassian|asana|canva|discord|spotify|slack)\b/gi, " ")
+    .replace(/\b(whoami|identity|profile|connected|mera|meri|mujhe|batao|dikhao|show|list|get|fetch|please|kya|hai|my|the|a|an)\b/gi, " ")
+    .replace(/[\u2014\u2013\-:|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const queryKeys = ["query", "q", "search", "text", "prompt", "question"];
+  for (const key of queryKeys) {
+    if (props[key] || required.includes(key)) {
+      if (q) args[key] = q;
+      return args;
+    }
+  }
+  if (/docs|search|find|query/i.test(nameL) && q) {
+    args.query = q;
+  }
+  return args;
+}
+
 export function matchMcpFromMessage(message, mcpTools = []) {
   const query = String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (!query || !Array.isArray(mcpTools) || !mcpTools.length) return null;
