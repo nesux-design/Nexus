@@ -1,0 +1,39 @@
+name: Apply phase B day43 MCP sources
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_phase_b_day43_mcp_sources.py'
+      - '.github/workflows/apply-phase-b-day43.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply day43
+        run: python3 scripts/apply_phase_b_day43_mcp_sources.py
+      - name: Refuse PLACEHOLDER
+        run: |
+          if grep -q PLACEHOLDER_WILL_FAIL worker.ts; then echo ABORT; exit 1; fi
+          test $(wc -c < worker.ts) -gt 10000
+          grep -q 'PHASE_B_DAY43' worker.ts
+          grep -q 'extractMcpSourcesFromResult' mcp-client.js
+      - name: esbuild smoke
+        run: npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          if git diff --staged --quiet; then echo no changes; else
+            git commit -m "feat(phase-b-day43): MCP sources/citations from tool results (docs URLs)"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
