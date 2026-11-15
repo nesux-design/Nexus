@@ -1,0 +1,47 @@
+name: Apply phase B day44 MCP merge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_phase_b_day44_mcp_merge.py'
+      - '.github/workflows/apply-phase-b-day44.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Restore mcp-client.js from day43 baseline (pre-PLACEHOLDER)
+        run: |
+          set -e
+          # Known-good full mcp-client before accidental PLACEHOLDER/truncation
+          git show 9be93c8a72279303686bb3edd7e0fa1bc9034bba:mcp-client.js > mcp-client.js
+          test $(wc -c < mcp-client.js) -gt 15000
+          head -3 mcp-client.js
+          if grep -qx 'PLACEHOLDER' mcp-client.js; then echo BAD; exit 1; fi
+      - name: Apply day44 merge patch
+        run: python3 scripts/apply_phase_b_day44_mcp_merge.py
+      - name: Verify DAY44
+        run: |
+          set -e
+          test $(wc -c < mcp-client.js) -gt 15000
+          grep -q 'PHASE_B_DAY44' mcp-client.js
+          grep -q 'no early-return' mcp-client.js
+          ! grep -q 'if (tools.length) return tools' mcp-client.js
+          ! grep -qx 'PLACEHOLDER' mcp-client.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add mcp-client.js scripts/apply_phase_b_day44_mcp_merge.py docs/PHASE-B-DAY44-MCP-MERGE.md || true
+          if git diff --staged --quiet; then echo no changes; else
+            git commit -m "feat(phase-b-day44): restore mcp-client + merge named MCP connectors"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
