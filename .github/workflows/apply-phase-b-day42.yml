@@ -1,0 +1,39 @@
+name: Apply phase B day42 MCP args
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_phase_b_day42_mcp_args.py'
+      - '.github/workflows/apply-phase-b-day42.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply day42
+        run: python3 scripts/apply_phase_b_day42_mcp_args.py
+      - name: Refuse PLACEHOLDER
+        run: |
+          if grep -q PLACEHOLDER_WILL_FAIL worker.ts; then echo ABORT; exit 1; fi
+          test $(wc -c < worker.ts) -gt 10000
+          grep -q 'PHASE_B_DAY42' worker.ts
+          grep -q 'extractMcpToolArgs' mcp-client.js
+      - name: esbuild smoke
+        run: npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          if git diff --staged --quiet; then echo no changes; else
+            git commit -m "feat(phase-b-day42): extract MCP tool args from natural language (docs/query)"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
