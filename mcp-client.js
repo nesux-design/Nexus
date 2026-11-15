@@ -82,6 +82,7 @@ export async function mcpGatewayFetch(env, userId, path, options = {}) {
   } catch {
     data = text ? { raw: text } : null;
   }
+  // 3xx with Location is a successful OAuth redirect handshake, not an error body
   const isRedirect = res.status >= 300 && res.status < 400 && !!location;
   return {
     ok: res.ok || isRedirect,
@@ -92,4 +93,473 @@ export async function mcpGatewayFetch(env, userId, path, options = {}) {
     wwwAuthenticate: res.headers.get("www-authenticate") || null,
     location: res.headers.get("location") || null
   };
+}
+
+export async function listMcpConnectors(env, userId) {
+  const secret = env?.NEXUS_INTERNAL_AUTH_SECRET || env?.NEXUS_AUTH_SECRET || env?.MCP_AUTH_SECRET || env?.NEXUS_HMAC_SECRET;
+  if (secret && userId) {
+    const r = await mcpGatewayFetch(env, userId, "/connectors", { method: "GET" });
+    if (r.ok) return r.data?.connectors || r.data || [];
+  }
+  try {
+    const res = await fetch(`${mcpBase(env)}/connectors`);
+    const data = await res.json();
+    return data?.connectors || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function listMcpTools(env, userId, connector) {
+  const rpc = {
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/list",
+    params: {}
+  };
+  const r = await mcpGatewayFetch(env, userId, `/mcp/${encodeURIComponent(connector)}`, {
+    method: "POST",
+    body: rpc
+  });
+  if (!r.ok) {
+    const errStr = String(r.error || (r.data && (r.data.error || r.data.message)) || "");
+    const oauthNeeded =
+      r.status === 401 ||
+      /provider_authorization_required|oauth_required|authorization required|unauthorized/i.test(errStr);
+    return {
+      success: false,
+      status: r.status,
+      error: r.error,
+      oauth_required: oauthNeeded,
+      wwwAuthenticate: r.wwwAuthenticate,
+      tools: []
+    };
+  }
+  const tools =
+    r.data?.result?.tools ||
+    r.data?.tools ||
+    (Array.isArray(r.data?.result) ? r.data.result : []) ||
+    [];
+  return { success: true, tools: Array.isArray(tools) ? tools : [], data: r.data };
+}
+
+export async function callMcpTool(env, userId, connector, name, args = {}) {
+  const rpc = {
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/call",
+    params: { name, arguments: args && typeof args === "object" ? args : {} }
+  };
+  const r = await mcpGatewayFetch(env, userId, `/mcp/${encodeURIComponent(connector)}`, {
+    method: "POST",
+    body: rpc
+  });
+  if (!r.ok) {
+    const errStr = String(r.error || (r.data && (r.data.error || r.data.message)) || "");
+    const oauthNeeded =
+      r.status === 401 ||
+      /provider_authorization_required|oauth_required|authorization required|unauthorized/i.test(errStr);
+    return {
+      success: false,
+      status: r.status,
+      error: r.error,
+      oauth_required: oauthNeeded,
+      wwwAuthenticate: r.wwwAuthenticate,
+      data: r.data
+    };
+  }
+  return { success: true, data: r.data?.result || r.data, raw: r.data };
+}
+
+export function mcpFunctionName(connector, toolName) {
+  const c = String(connector || "").replace(/[^a-zA-Z0-9_]/g, "_");
+  const t = String(toolName || "").replace(/[^a-zA-Z0-9_]/g, "_");
+  return `mcp_${c}_${t}`.slice(0, 64);
+}
+
+export function parseMcpFunctionName(name) {
+  const n = String(name || "");
+  if (!n.startsWith("mcp_")) return null;
+  const rest = n.slice(4);
+  const i = rest.indexOf("_");
+  if (i < 0) return null;
+  return { connector: rest.slice(0, i), tool: rest.slice(i + 1).replace(/_/g, " ") };
+}
+
+export function mcpToolsToGeminiDeclarations(mcpTools) {
+  const decls = [];
+  const nameMap = {};
+  for (const t of mcpTools || []) {
+    if (!t?.name || !t?.connector) continue;
+    const fn = mcpFunctionName(t.connector, t.name);
+    nameMap[fn] = { connector: t.connector, tool: t.name };
+    const schema = t.inputSchema || t.input_schema || { type: "object", properties: {} };
+    decls.push({
+      name: fn,
+      description: `[MCP:${t.connector}] ${t.description || t.name}. Live tool from remote MCP server.`,
+      parameters: schema.type ? schema : { type: "object", properties: schema.properties || {} }
+    });
+  }
+  return { decls, nameMap };
+}
+
+export function mcpToolsToOpenAITools(mcpTools) {
+  const { decls } = mcpToolsToGeminiDeclarations(mcpTools);
+  return decls.map((d) => ({
+    type: "function",
+    function: { name: d.name, description: d.description, parameters: d.parameters }
+  }));
+}
+
+export async function loadMcpToolsForUser(env, userId, { connectors = null, limit = 6 } = {}) {
+  if (!(env?.NEXUS_INTERNAL_AUTH_SECRET || env?.NEXUS_AUTH_SECRET || env?.MCP_AUTH_SECRET || env?.NEXUS_HMAC_SECRET) || !userId) {
+    return { tools: [], nameMap: {}, connectors: [], notes: ["MCP secret or userId missing"] };
+  }
+  let list = connectors;
+  if (!list || !list.length) {
+    list = await listMcpConnectors(env, userId);
+  }
+  const ids = (list || [])
+    .map((c) => (typeof c === "string" ? c : c.id))
+    .filter(Boolean)
+    .slice(0, limit);
+
+  const tools = [];
+  const notes = [];
+  const priority = ["cloudflare", "github", "supabase", "vercel", "netlify", "airtable", "atlassian", "sentry"];
+  ids.sort((a, b) => {
+    const ia = priority.indexOf(a);
+    const ib = priority.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
+  await Promise.all(
+    ids.slice(0, limit).map(async (id) => {
+      try {
+        const res = await listMcpTools(env, userId, id);
+        if (res.oauth_required) {
+          notes.push(`${id}: authorization required`);
+          return;
+        }
+        if (!res.success) {
+          notes.push(`${id}: ${res.error || "failed"}`);
+          return;
+        }
+        for (const tool of res.tools || []) {
+          tools.push({
+            connector: id,
+            name: tool.name,
+            description: tool.description || tool.name,
+            inputSchema: tool.inputSchema || tool.input_schema
+          });
+        }
+      } catch (e) {
+        notes.push(`${id}: ${e?.message || e}`);
+      }
+    })
+  );
+
+  const { decls, nameMap } = mcpToolsToGeminiDeclarations(tools);
+  return { tools, decls, nameMap, connectors: ids, notes };
+}
+
+export function buildMcpThinkingSteps({ message, connector, tool, result }) {
+  const steps = [];
+  if (message) steps.push({ title: "Understanding request", detail: String(message).slice(0, 120), status: "done" });
+  steps.push({ title: "MCP gateway", detail: "nexus-mcp-server", status: "done" });
+  if (connector) steps.push({ title: "Connector", detail: connector, status: "done" });
+  if (tool) steps.push({ title: "MCP tool", detail: tool, status: "done" });
+  if (result) {
+    if (result.oauth_required) {
+      steps.push({ title: "Needs OAuth", detail: "Provider consent required", status: "blocked" });
+    } else if (result.success === false) {
+      steps.push({ title: "MCP call failed", detail: String(result.error || "").slice(0, 100), status: "error" });
+    } else {
+      steps.push({ title: "Got MCP result", detail: "tools/call ok", status: "done" });
+      steps.push({ title: "Writing answer", detail: "From MCP data", status: "done" });
+    }
+  }
+  return steps;
+}
+
+export function buildMcpAnswerPrompt(userMessage, connector, tool, data) {
+  const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  return `You are NEXUS, connected to real MCP servers (Claude/Grok style).\n\nUser asked: "${userMessage}"\n\nMCP connector: ${connector}\nTool: ${tool}\n\nLive MCP result:\n\`\`\`json\n${String(payload).substring(0, 12000)}\n\`\`\`\n\nAnswer clearly in the user's language. No raw JSON dump. If OAuth is required, tell them to connect that MCP provider.`;
+}
+
+export async function getMcpOAuthStart(env, userId, connectorId) {
+  const connector = String(connectorId || "").trim();
+  if (!connector) return { success: false, error: "connector required" };
+  if (!Object.prototype.hasOwnProperty.call(MCP_GATEWAY_CONNECTORS, connector)) {
+    return { success: false, error: "Unknown MCP connector: " + connector };
+  }
+  const result = await mcpGatewayFetch(env, userId, mcpOAuthStartPath(connector), { method: "GET", redirect: "manual" });
+  const location = result.location || result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location;
+  if (location && /^https?:\/\//i.test(location)) {
+    return { success: true, connector, authorize_url: location, status: result.status };
+  }
+  return {
+    success: false,
+    connector,
+    error: result.error || result.data?.message || "oauth_start_failed",
+    status: result.status,
+    data: result.data
+  };
+}
+
+// PHASE_B_DAY36 — if catalog empty, still try connectors named in the user message
+// PHASE_B_DAY44 — MERGE named connectors even when other MCP tools already loaded (no early-return)
+export async function ensureMcpToolsForMessage(env, userId, message, existing = []) {
+  let tools = Array.isArray(existing) ? existing.slice() : [];
+  const m = String(message || "").toLowerCase();
+  const tryIds = [];
+  const pushId = (id) => {
+    if (id && !tryIds.includes(id)) tryIds.push(id);
+  };
+  // aliases + full names (Claude/Grok style natural mentions)
+  if (/\bcloudflare\b|\bcf\b|\bworkers\s+kv\b/i.test(m) || m.includes("cloudflare")) pushId("cloudflare");
+  if (/\bgithub\b|\bgh\b/i.test(m) || m.includes("github")) pushId("github");
+  if (m.includes("vercel")) pushId("vercel");
+  if (m.includes("netlify")) pushId("netlify");
+  if (m.includes("supabase")) pushId("supabase");
+  if (m.includes("linear")) pushId("linear");
+  if (m.includes("notion")) pushId("notion");
+  if (m.includes("stripe")) pushId("stripe");
+  if (m.includes("sentry")) pushId("sentry");
+  if (/\batlassian\b|\bjira\b|\bconfluence\b/i.test(m)) pushId("atlassian");
+  if (m.includes("asana")) pushId("asana");
+  if (m.includes("canva")) pushId("canva");
+  if (m.includes("zoom")) pushId("zoom");
+  if (m.includes("hubspot")) pushId("hubspot");
+  if (m.includes("salesforce")) pushId("salesforce");
+  if (m.includes("airtable")) pushId("airtable");
+  if (m.includes("telegram")) pushId("telegram");
+  for (const id of tryIds) {
+    // Skip fetch if this connector already contributed tools
+    if (tools.some((t) => t && t.connector === id)) continue;
+    try {
+      const res = await listMcpTools(env, userId, id);
+      if (res && res.oauth_required) continue;
+      if (!res || !res.success) continue;
+      for (const tool of res.tools || []) {
+        if (tools.some((t) => t && t.connector === id && t.name === tool.name)) continue;
+        tools.push({
+          connector: id,
+          name: tool.name,
+          description: tool.description || tool.name,
+          inputSchema: tool.inputSchema || tool.input_schema
+        });
+      }
+    } catch (e) {
+      console.error("ensureMcpToolsForMessage", id, e && e.message);
+    }
+  }
+  return tools;
+}
+
+/** PHASE_B_DAY42 - build minimal tool args from user message + optional inputSchema */
+export function extractMcpToolArgs(message, connector, toolName, inputSchema = null) {
+  const args = {};
+  const raw = String(message || "").trim();
+  if (!raw) return args;
+  const nameL = String(toolName || "").toLowerCase();
+  if (/^(whoami|get_me|me|getme)$/i.test(nameL)) return args;
+
+  const schema = inputSchema && typeof inputSchema === "object" ? inputSchema : null;
+  const props = (schema && schema.properties) || {};
+  const required = Array.isArray(schema && schema.required) ? schema.required : [];
+
+  let q = raw
+    .replace(/\b(cloudflare|github|vercel|netlify|supabase|linear|notion|stripe|sentry|atlassian|asana|canva|discord|spotify|slack)\b/gi, " ")
+    .replace(/\b(whoami|identity|profile|connected|mera|meri|mujhe|batao|dikhao|show|list|get|fetch|please|kya|hai|my|the|a|an)\b/gi, " ")
+    .replace(/[\u2014\u2013\-:|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const queryKeys = ["query", "q", "search", "text", "prompt", "question"];
+  for (const key of queryKeys) {
+    if (props[key] || required.includes(key)) {
+      if (q) args[key] = q;
+      return args;
+    }
+  }
+  if (/docs|search|find|query/i.test(nameL) && q) {
+    args.query = q;
+  }
+  return args;
+}
+
+/** PHASE_B_DAY43 - pull http(s) sources from MCP tool result content */
+export function extractMcpSourcesFromResult(mcpResult, limit = 8) {
+  const out = [];
+  const seen = new Set();
+  const push = (url, title) => {
+    const u = String(url || "").trim();
+    if (!u || !/^https?:\/\//i.test(u) || seen.has(u)) return;
+    seen.add(u);
+    out.push({ title: String(title || u).slice(0, 200), url: u });
+  };
+  try {
+    const data = mcpResult && (mcpResult.data || mcpResult.result || mcpResult);
+    const blobs = [];
+    if (!data) return out;
+    if (typeof data === "string") blobs.push(data);
+    else {
+      blobs.push(JSON.stringify(data));
+      const content = data.content || data.contents || [];
+      if (Array.isArray(content)) {
+        for (const c of content) {
+          if (typeof c === "string") blobs.push(c);
+          else if (c && typeof c.text === "string") blobs.push(c.text);
+          else if (c && c.type === "resource" && c.resource && c.resource.uri) push(c.resource.uri, c.resource.name || c.resource.uri);
+        }
+      }
+      if (Array.isArray(data.results)) {
+        for (const r of data.results) {
+          if (r && r.url) push(r.url, r.title || r.name);
+        }
+      }
+    }
+    for (const blob of blobs) {
+      const pairRe = /<url>\s*([^<]+?)\s*<\/url>\s*(?:<title>\s*([^<]*?)\s*<\/title>)?/gi;
+      let m;
+      while ((m = pairRe.exec(blob)) && out.length < limit) {
+        push(m[1], m[2] || m[1]);
+      }
+      const urlRe = /https?:\/\/[^\s<>"')\]]+/gi;
+      let u;
+      while ((u = urlRe.exec(blob)) && out.length < limit) {
+        let href = u[0].replace(/[.,;:]+$/, "");
+        push(href, href);
+      }
+    }
+  } catch (_) {}
+  return out.slice(0, limit);
+}
+
+export function matchMcpFromMessage(message, mcpTools = []) {
+  const query = String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!query || !Array.isArray(mcpTools) || !mcpTools.length) return null;
+  const hasActionVerb = /\b(list|show|get|fetch|search|find|create|update|delete|send|read|write|open|deploy|check|retrieve|add|remove|edit|comment|run|execute|view|look up|whoami|identity|profile|batao|dikhao)\b/i.test(query);
+  const wantsIdentity = /\b(whoami|identity|connected identity|profile|mera account|my account)\b/i.test(query);
+  const candidates = [];
+  for (const tool of mcpTools) {
+    if (!tool || !tool.connector || !tool.name) continue;
+    const connector = String(tool.connector);
+    const name = String(tool.name);
+    const nameL = name.toLowerCase();
+    const normalizedName = nameL.replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const normalizedConnector = connector.toLowerCase().replace(/[_-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").trim();
+    const description = String(tool.description || "").toLowerCase();
+    let score = 0;
+    if (normalizedName && (" " + query + " ").includes(" " + normalizedName + " ")) score += 6;
+    if (nameL.replace(/[_-]+/g, "") && query.replace(/\s+/g, "").includes(nameL.replace(/[_-]+/g, ""))) score += 5;
+    if (normalizedConnector && (" " + query + " ").includes(" " + normalizedConnector + " ")) score += 3;
+    // PHASE_B_DAY36 — explicit identity / whoami requests
+    if (wantsIdentity && (nameL === "whoami" || nameL === "get_me" || nameL === "getme" || nameL === "me")) score += 10;
+    if (wantsIdentity && normalizedConnector && query.includes(normalizedConnector) && (nameL === "whoami" || nameL.includes("whoami"))) score += 5;
+    const terms = description.split(/[^a-z0-9]+/).filter(w => w.length >= 4 && !["with", "from", "that", "this", "your", "into", "user", "list", "data"].includes(w));
+    for (const term of terms) if ((" " + query + " ").includes(" " + term + " ")) score += 0.2;
+    // PHASE_B_DAY44 — docs/search boost when user asks docs
+    if (/\b(docs|documentation|search)\b/i.test(query) && /docs|search/i.test(nameL)) score += 4;
+    if (score >= 5 || (score >= 2.5 && hasActionVerb) || (wantsIdentity && score >= 4)) {
+      candidates.push({
+        connector,
+        name,
+        score,
+        inputSchema: tool.inputSchema || tool.input_schema || null
+      });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  if (!candidates.length) return null;
+  if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
+    const prefer = candidates.find(c => /^(whoami|get_me)$/i.test(c.name));
+    if (prefer) return { connector: prefer.connector, name: prefer.name, inputSchema: prefer.inputSchema || null };
+    return null;
+  }
+  // PHASE_B_DAY44 — pass inputSchema so force-route can extract tool args
+  return {
+    connector: candidates[0].connector,
+    name: candidates[0].name,
+    inputSchema: candidates[0].inputSchema || null
+  };
+}
+
+export function formatMcpForThinking(mcpTools = []) {
+  if (!Array.isArray(mcpTools) || !mcpTools.length) return "";
+  return mcpTools.slice(0, 30).map(tool => {
+    const connector = String(tool?.connector || "unknown");
+    const name = String(tool?.name || "tool");
+    const description = String(tool?.description || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    return "- " + connector + "." + name + (description ? ": " + description : "");
+  }).join("\n");
+}
+
+export { MCP_GATEWAY_CONNECTORS, listMcpGatewayCatalog };
+
+/** Claude-style custom MCP (user pastes remote MCP URL) */
+export async function listCustomMcps(env, userId) {
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "GET" });
+  if (!r.ok) return { success: false, error: r.error || "list failed", connectors: [], status: r.status };
+  return { success: true, connectors: r.data?.connectors || [], data: r.data };
+}
+
+export async function addCustomMcp(env, userId, { url, mcpUrl, name, headers } = {}) {
+  const u = String(mcpUrl || url || "").trim();
+  if (!u) return { success: false, error: "url required" };
+  const body = { url: u, name: name || "Custom MCP" };
+  if (headers) body.headers = headers;
+  const r = await mcpGatewayFetch(env, userId, "/custom-mcp", { method: "POST", body });
+  if (!r.ok) return { success: false, error: r.error || r.data?.message || "add failed", data: r.data };
+  return { success: true, ...(r.data || {}) };
+}
+
+export async function setCustomMcpCredentials(env, userId, connectorId, credentials = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const auth = credentials.auth && typeof credentials.auth === "object" ? { ...credentials.auth } : {};
+  if (credentials.apiKey != null) auth.apiKey = credentials.apiKey;
+  if (credentials.bearer != null) auth.bearer = credentials.bearer;
+  if (credentials.token != null && auth.bearer == null) auth.bearer = credentials.token;
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}/credentials`, {
+    method: "POST",
+    body: { auth }
+  });
+  if (!r.ok) return { success: false, error: r.error || "credentials failed", status: r.status, data: r.data };
+  return { success: true, connectorId: id, hasCredentials: true, ...(r.data || {}) };
+}
+
+export async function deleteCustomMcp(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/custom-mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) return { success: false, error: r.error || "delete failed", status: r.status, data: r.data };
+  return { success: true, deleted: id, ...(r.data || {}) };
+}
+
+export async function getCustomMcpOAuthStart(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  const r = await mcpGatewayFetch(env, userId, `/oauth/custom/${encodeURIComponent(id)}/start`, {
+    method: "GET",
+    redirect: "manual"
+  });
+  const location = r.location || r.headers?.location || r.data?.authorize_url || r.data?.url;
+  if (location && /^https?:\/\//i.test(location)) {
+    return { success: true, connector: id, authorize_url: location, status: r.status };
+  }
+  return { success: false, connector: id, error: r.error || r.data?.message || "oauth_start_failed", status: r.status, data: r.data };
+}
+
+export async function listCustomMcpTools(env, userId, connectorId) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required", tools: [] };
+  return listMcpTools(env, userId, `custom/${id}`);
+}
+
+export async function callCustomMcpTool(env, userId, connectorId, name, args = {}) {
+  const id = String(connectorId || "").trim();
+  if (!id) return { success: false, error: "connectorId required" };
+  return callMcpTool(env, userId, `custom/${id}`, name, args);
 }
