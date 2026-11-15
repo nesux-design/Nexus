@@ -36,6 +36,7 @@ import {
   listMcpTools,
   callMcpTool,
   extractMcpToolArgs,
+  extractMcpSourcesFromResult,
   getMcpOAuthStart
 } from "./mcp-client.js";
 
@@ -166,6 +167,7 @@ import {
   listMcpConnectors,
   callMcpTool,
   extractMcpToolArgs,
+  extractMcpSourcesFromResult,
   getMcpOAuthStart,
   listMcpTools,
   mcpToolsToGeminiDeclarations,
@@ -6308,11 +6310,17 @@ const answerPrompt = typeof buildMcpAnswerPrompt === "function"
             if (userId !== "anonymous") {
               await addMessage(env2, ip, userId, sessionId, message, natural);
             }
+            // PHASE_B_DAY43 - stream sources from MCP result
+            const streamMcpSources = (typeof extractMcpSourcesFromResult === "function")
+              ? extractMcpSourcesFromResult(mcpResult, 8)
+              : [];
             ultra.done(natural, {
               intent: "execute_mcp",
               thinking_steps: steps,
               mcp: { connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult },
-              model: "mcp+llm"
+              model: "mcp+llm",
+              sources: streamMcpSources,
+              presentation: { version: 1, kind: "prose", features: { hasCode: /```/.test(String(natural||"")), hasTable: false, hasLinks: streamMcpSources.length > 0, hasNumberedSteps: false, hasCitations: streamMcpSources.length > 0, hasSources: streamMcpSources.length > 0, hasArtifact: false, hasRelatedQuestions: false } }
             });
             return;
           }
@@ -8905,14 +8913,19 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     // PHASE_B_DAY38 — schema v2 envelope
     {
       const _snap = await getUsageSnapshot2026(env2, auth.userId);
+      // PHASE_B_DAY43 - sources from MCP docs/tool payloads
+      const mcpSources = (typeof extractMcpSourcesFromResult === "function")
+        ? extractMcpSourcesFromResult(mcpResult, 8)
+        : [];
+      const hasMcpSources = Array.isArray(mcpSources) && mcpSources.length > 0;
       return new Response(JSON.stringify({
         response: natural,
         thinking_steps: steps,
         intent: "execute_mcp",
         mcp: { connector, tool: toolName, result: mcpResult },
         model: "mcp+llm",
-        presentation: { version: 1, kind: "prose", features: { hasCode: false, hasTable: false, hasLinks: false, hasNumberedSteps: false, hasCitations: false, hasSources: false, hasArtifact: false, hasRelatedQuestions: false } },
-        sources: [],
+        presentation: { version: 1, kind: "prose", features: { hasCode: /```/.test(String(natural||"")), hasTable: false, hasLinks: hasMcpSources, hasNumberedSteps: false, hasCitations: hasMcpSources, hasSources: hasMcpSources, hasArtifact: false, hasRelatedQuestions: false } },
+        sources: mcpSources,
         relatedQuestions: [],
         searchPerformed: false,
         latency: Date.now() - startTime,

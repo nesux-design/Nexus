@@ -374,6 +374,54 @@ export function extractMcpToolArgs(message, connector, toolName, inputSchema = n
   return args;
 }
 
+/** PHASE_B_DAY43 - pull http(s) sources from MCP tool result content */
+export function extractMcpSourcesFromResult(mcpResult, limit = 8) {
+  const out = [];
+  const seen = new Set();
+  const push = (url, title) => {
+    const u = String(url || "").trim();
+    if (!u || !/^https?:\/\//i.test(u) || seen.has(u)) return;
+    seen.add(u);
+    out.push({ title: String(title || u).slice(0, 200), url: u });
+  };
+  try {
+    const data = mcpResult && (mcpResult.data || mcpResult.result || mcpResult);
+    const blobs = [];
+    if (!data) return out;
+    if (typeof data === "string") blobs.push(data);
+    else {
+      blobs.push(JSON.stringify(data));
+      const content = data.content || data.contents || [];
+      if (Array.isArray(content)) {
+        for (const c of content) {
+          if (typeof c === "string") blobs.push(c);
+          else if (c && typeof c.text === "string") blobs.push(c.text);
+          else if (c && c.type === "resource" && c.resource && c.resource.uri) push(c.resource.uri, c.resource.name || c.resource.uri);
+        }
+      }
+      if (Array.isArray(data.results)) {
+        for (const r of data.results) {
+          if (r && r.url) push(r.url, r.title || r.name);
+        }
+      }
+    }
+    for (const blob of blobs) {
+      const pairRe = /<url>\s*([^<]+?)\s*<\/url>\s*(?:<title>\s*([^<]*?)\s*<\/title>)?/gi;
+      let m;
+      while ((m = pairRe.exec(blob)) && out.length < limit) {
+        push(m[1], m[2] || m[1]);
+      }
+      const urlRe = /https?:\/\/[^\s<>"')\]]+/gi;
+      let u;
+      while ((u = urlRe.exec(blob)) && out.length < limit) {
+        let href = u[0].replace(/[.,;:]+$/, "");
+        push(href, href);
+      }
+    }
+  } catch (_) {}
+  return out.slice(0, limit);
+}
+
 export function matchMcpFromMessage(message, mcpTools = []) {
   const query = String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (!query || !Array.isArray(mcpTools) || !mcpTools.length) return null;
