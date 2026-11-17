@@ -1,0 +1,189 @@
+name: Apply live time awareness fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-time-fix.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply time awareness patches
+        run: |
+          set -e
+          python3 << 'PY'
+import re
+content = open("worker.ts").read()
+assert "PLACEHOLDER" not in content[:200]
+
+# 1. Replace getCurrentDate
+old = '''function getCurrentDate() {
+  const now = /* @__PURE__ */ new Date();
+  return {
+    year: now.getUTCFullYear(),
+    month: String(now.getUTCMonth() + 1).padStart(2, "0"),
+    day: String(now.getUTCDate()).padStart(2, "0"),
+    hours: String(now.getUTCHours()).padStart(2, "0"),
+    minutes: String(now.getUTCMinutes()).padStart(2, "0"),
+    full: now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-" + String(now.getUTCDate()).padStart(2, "0"),
+    timestamp: Date.now(),
+    iso: now.toISOString(),
+    unix: Math.floor(now.getTime() / 1e3)
+  };
+}
+__name(getCurrentDate, "getCurrentDate");
+__name2(getCurrentDate, "getCurrentDate");
+__name22(getCurrentDate, "getCurrentDate");
+var CURRENT_DATE = getCurrentDate();
+var CURRENT_YEAR = CURRENT_DATE.year;
+var CURRENT_MONTH = CURRENT_DATE.month;
+var CURRENT_DAY = CURRENT_DATE.day;
+var TODAY = CURRENT_DATE.full;'''
+
+new = '''function getCurrentDate() {
+  const now = new Date();
+  // IST = UTC + 5:30
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(now.getTime() + istOffsetMs);
+  const pad = (n) => String(n).padStart(2, "0");
+  const weekday = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  return {
+    year: now.getUTCFullYear(),
+    month: pad(now.getUTCMonth() + 1),
+    day: pad(now.getUTCDate()),
+    hours: pad(now.getUTCHours()),
+    minutes: pad(now.getUTCMinutes()),
+    full: now.getUTCFullYear() + "-" + pad(now.getUTCMonth() + 1) + "-" + pad(now.getUTCDate()),
+    timestamp: Date.now(),
+    iso: now.toISOString(),
+    unix: Math.floor(now.getTime() / 1e3),
+    // Live human-readable for prompts (always recompute)
+    utcString: weekday[now.getUTCDay()] + ", " + now.getUTCDate() + " " + months[now.getUTCMonth()] + " " + now.getUTCFullYear() + " " + pad(now.getUTCHours()) + ":" + pad(now.getUTCMinutes()) + ":" + pad(now.getUTCSeconds()) + " UTC",
+    istString: weekday[ist.getUTCDay()] + ", " + ist.getUTCDate() + " " + months[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + pad(ist.getUTCHours()) + ":" + pad(ist.getUTCMinutes()) + ":" + pad(ist.getUTCSeconds()) + " IST",
+    istHour: ist.getUTCHours(),
+    istMinute: ist.getUTCMinutes(),
+    dayName: weekday[ist.getUTCDay()]
+  };
+}
+__name(getCurrentDate, "getCurrentDate");
+__name2(getCurrentDate, "getCurrentDate");
+__name22(getCurrentDate, "getCurrentDate");
+// Keep for compatibility but prefer calling getCurrentDate() live in request path
+var CURRENT_DATE = getCurrentDate();
+var CURRENT_YEAR = CURRENT_DATE.year;
+var CURRENT_MONTH = CURRENT_DATE.month;
+var CURRENT_DAY = CURRENT_DATE.day;
+var TODAY = CURRENT_DATE.full;'''
+
+if old not in content:
+    raise SystemExit("getCurrentDate block not found")
+content = content.replace(old, new, 1)
+print("1. getCurrentDate OK")
+
+# 2. Master prompt time section
+old2 = '''${getCapabilitiesSection()}
+
+**Today's Date: ${TODAY}**
+**Current Year: ${CURRENT_YEAR}**`;
+}
+__name(getMasterPrompt, "getMasterPrompt");'''
+
+new2 = '''${getCapabilitiesSection()}
+
+**CRITICAL TIME AWARENESS (always follow):**
+- Current UTC: ${getCurrentDate().utcString}
+- Current IST (India): ${getCurrentDate().istString}
+- Today's Date (UTC): ${getCurrentDate().full}
+- Current Year: ${getCurrentDate().year}
+- For any question about "current time", "what time is it", "abhi kitna baja", or clock: answer ONLY from the times above. Do NOT search the web for the time of day. Never invent or use old search results for the current clock.
+- For weather / temperature "right now" or "aaj": prefer the most recent observation, not morning-only or stale cached data. If sources disagree, prefer the one with the latest timestamp.
+- Never claim a date or time that contradicts the injected values above.`;
+}
+__name(getMasterPrompt, "getMasterPrompt");'''
+
+if old2 not in content:
+    raise SystemExit("master prompt block not found")
+content = content.replace(old2, new2, 1)
+print("2. master prompt OK")
+
+# 3. Other TODAY injections
+content = content.replace(
+    'text: "Search the web for the most recent information about: " + query + ". Today is " + TODAY + ". Provide specific details, dates, names, and sources."',
+    'text: "Search the web for the most recent information about: " + query + ". Today is " + getCurrentDate().full + " (" + getCurrentDate().istString + "). Provide specific details, dates, names, and sources. Prefer sources with the latest timestamps."',
+    1)
+print("3. search text OK")
+
+content = content.replace(
+    'enrichedContext = "\\n\\n**\\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\\n" + searchResult.content + "\\n\\n**\\u26A0\\uFE0F PRIMARY DATA - Today: " + TODAY + "**\\n\\n" + enrichedContext;',
+    'enrichedContext = "\\n\\n**\\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\\n" + searchResult.content + "\\n\\n**\\u26A0\\uFE0F PRIMARY DATA - Today: " + getCurrentDate().full + " | " + getCurrentDate().istString + "**\\n\\n" + enrichedContext;',
+    1)
+print("4. enriched OK")
+
+content = content.replace(
+    'finalPrompt = getMasterPrompt() + "\\n\\n**Language: " + (INDIAN_LANGUAGES[responseLanguage]?.name || responseLanguage) + "**\\n**Today: " + TODAY + "**\\n**Complexity: " + (reasoning.plan?.complexity || "medium") + "**\\n**Approach: " + (reasoning.plan?.approach || "direct") + "**\\n\\n" + enrichedContext + "\\n\\n**Query:** " + query;',
+    'finalPrompt = getMasterPrompt() + "\\n\\n**Language: " + (INDIAN_LANGUAGES[responseLanguage]?.name || responseLanguage) + "**\\n**Today: " + getCurrentDate().full + " | " + getCurrentDate().istString + "**\\n**Complexity: " + (reasoning.plan?.complexity || "medium") + "**\\n**Approach: " + (reasoning.plan?.approach || "direct") + "**\\n\\n" + enrichedContext + "\\n\\n**Query:** " + query;',
+    1)
+print("5. finalPrompt1 OK")
+
+content = content.replace(
+    'const finalPrompt = getMasterPrompt() + "\\n\\n**Language: " + (INDIAN_LANGUAGES[detectedLanguage]?.name || "English") + "**\\n**Today: " + TODAY + "**\\n\\n" + enrichedContext;',
+    'const finalPrompt = getMasterPrompt() + "\\n\\n**Language: " + (INDIAN_LANGUAGES[detectedLanguage]?.name || "English") + "**\\n**Today: " + getCurrentDate().full + " | " + getCurrentDate().istString + "**\\n\\n" + enrichedContext;',
+    1)
+print("6. finalPrompt2 OK")
+
+# 4. Pure time fast path
+old_fast = '''  if (!message || !String(message).trim()) {
+    return apiError("EMPTY_MESSAGE", "message is required", 400);
+  }
+  if (message && /\\b(remember|yaad\\s*rakh)/i.test(message)) {'''
+
+new_fast = '''  if (!message || !String(message).trim()) {
+    return apiError("EMPTY_MESSAGE", "message is required", 400);
+  }
+  // Fast path: pure current-time queries — never search, always accurate
+  const pureTimeRe = /^(what('?s| is)? (the )?(current )?time( now)?|current time|abhi (kitna|kya) (baja|time)|time (kya|kitna) (hai|hua)|what time is it( now)?|kitna baja hai|abhi ka time)[?.!\\s]*$/i;
+  if (pureTimeRe.test(String(message).trim())) {
+    const d = getCurrentDate();
+    const resp = `**Current time (live)**\\n\\n- **IST (India):** ${d.istString}\\n- **UTC:** ${d.utcString}\\n\\nExact to the second at the moment of this reply.`;
+    return new Response(JSON.stringify({
+      response: resp,
+      intent: "general_chat",
+      model: "nexus-clock",
+      latency: Date.now() - startTime,
+      schemaVersion: 2,
+      requestId: (typeof newRequestId === "function" ? newRequestId() : ("clk_" + Date.now())),
+      created: new Date().toISOString(),
+      userId: auth.userId,
+      searchPerformed: false,
+      confidence: 1.0
+    }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+  }
+  if (message && /\\b(remember|yaad\\s*rakh)/i.test(message)) {'''
+
+if old_fast not in content:
+    raise SystemExit("fast path insert point not found")
+content = content.replace(old_fast, new_fast, 1)
+print("7. fast path OK")
+
+open("worker.ts", "w").write(content)
+print("ALL PATCHES APPLIED, size:", len(content))
+PY
+          ! grep -q PLACEHOLDER worker.ts
+          npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git commit -m "fix: live accurate IST/UTC time injection + pure current-time fast path (Claude/Grok level)" || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main
