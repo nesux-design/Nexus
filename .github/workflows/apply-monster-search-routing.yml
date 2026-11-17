@@ -1,0 +1,163 @@
+name: Apply monster web-search + task routing
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-monster-search-routing.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patches
+        run: |
+          set -e
+          python3 << 'PY'
+content = open("worker.ts").read()
+assert "PLACEHOLDER" not in content[:300]
+
+# ========== 1. WEB SEARCH: Gemini first, Groq second + quality boost ==========
+old_search = '''async function performWebSearchUncached(query) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const datedQuery = query + " " + today;
+  try {
+    const groqResult = await callGroqCompound(
+      [{ role: "user", content: datedQuery }],
+      true
+    );
+    if (groqResult && groqResult.content && groqResult.content.length > 50) {
+      console.log("\u2705 Web Search: Groq Compound found results");
+      return groqResult;
+    }
+  } catch (e) {
+    console.error("Groq Compound failed:", e.message);
+  }
+  try {
+    const geminiResult = await webSearchGeminiFlash(datedQuery);
+    if (geminiResult && geminiResult.content && geminiResult.content.length > 50) {
+      console.log("\u2705 Web Search: Gemini Flash found results");
+      return geminiResult;
+    }
+  } catch (e) {
+    console.error("Gemini Flash failed:", e.message);
+  }'''
+
+new_search = '''async function performWebSearchUncached(query) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  // Stronger freshness bias for monster-level search
+  const datedQuery = query + " " + today + " latest current up-to-date";
+  // 1st: Gemini Flash (strong grounding + quality)
+  try {
+    const geminiResult = await webSearchGeminiFlash(datedQuery);
+    if (geminiResult && geminiResult.content && geminiResult.content.length > 50) {
+      console.log("\u2705 Web Search: Gemini Flash found results");
+      return geminiResult;
+    }
+  } catch (e) {
+    console.error("Gemini Flash failed:", e.message);
+  }
+  // 2nd: Groq Compound
+  try {
+    const groqResult = await callGroqCompound(
+      [{ role: "user", content: datedQuery }],
+      true
+    );
+    if (groqResult && groqResult.content && groqResult.content.length > 50) {
+      console.log("\u2705 Web Search: Groq Compound found results");
+      return groqResult;
+    }
+  } catch (e) {
+    console.error("Groq Compound failed:", e.message);
+  }'''
+
+if old_search not in content:
+    old_search2 = old_search.replace("\\u2705", "\u2705")
+    if old_search2 in content:
+        content = content.replace(old_search2, new_search.replace("\\u2705", "\u2705"), 1)
+        print("1. Search order swapped (unicode ok)")
+    else:
+        raise SystemExit("search block not found")
+else:
+    content = content.replace(old_search, new_search, 1)
+    print("1. Search order swapped (Gemini 1st, Groq 2nd)")
+
+# ========== 2. STRONGER TASK-SPECIFIC MODEL CHAINS ==========
+old_chains = '''  let modelChain;
+  if (taskType === "code" || priorityMode === "speed") {
+    modelChain = ["mimo", "groq", "gemini", "cerebras", "sambanova"];
+  } else if (taskType === "creative") {
+    modelChain = ["mimo", "gemini", "groq", "sambanova", "cerebras"];
+  } else if (priorityMode === "quality") {
+    modelChain = ["gemini", "groq", "mimo", "sambanova", "cerebras"];
+  } else {
+    modelChain = ["gemini", "mimo", "groq", "cerebras", "sambanova"];
+  }'''
+
+new_chains = '''  let modelChain;
+  // Monster-level task-specific routing (distinct chains, not one-size-fits-all)
+  if (taskType === "code" || priorityMode === "speed") {
+    // Code / speed: fastest reliable first
+    modelChain = ["groq", "mimo", "gemini", "cerebras", "sambanova"];
+  } else if (taskType === "creative") {
+    // Creative writing / storytelling
+    modelChain = ["gemini", "mimo", "groq", "sambanova", "cerebras"];
+  } else if (taskType === "research" || taskType === "analysis" || priorityMode === "quality") {
+    // Research / deep analysis / quality-first
+    modelChain = ["gemini", "groq", "mimo", "sambanova", "cerebras"];
+  } else if (taskType === "math" || taskType === "reasoning") {
+    // Math & hard reasoning
+    modelChain = ["gemini", "groq", "mimo", "cerebras", "sambanova"];
+  } else {
+    // Default / general chat: quality-biased but still fast
+    modelChain = ["gemini", "groq", "mimo", "cerebras", "sambanova"];
+  }'''
+
+if old_chains not in content:
+    raise SystemExit("modelChain block not found")
+content = content.replace(old_chains, new_chains, 1)
+print("2. Task-specific model chains upgraded")
+
+# ========== 3. Better taskType detection in main chat path ==========
+old_task = '''taskType: reasoning.plan?.approach === "code" ? "code" : reasoning.plan?.approach === "creative" ? "creative" : "general",'''
+
+new_task = '''taskType: (function() {
+        const approach = (reasoning.plan && reasoning.plan.approach) || "";
+        const q = String(query || message || "").toLowerCase();
+        if (approach === "code" || /\\b(code|program|function|bug|debug|typescript|python|javascript|react|api)\\b/.test(q)) return "code";
+        if (approach === "creative" || /\\b(story|poem|write a|creative|fiction|script)\\b/.test(q)) return "creative";
+        if (approach === "research" || /\\b(research|analyse|analyze|compare|latest|news|explain in depth|deep dive)\\b/.test(q)) return "research";
+        if (/\\b(math|calculate|equation|solve|proof|derivative|integral)\\b/.test(q)) return "math";
+        return "general";
+      })(),'''
+
+if old_task not in content:
+    print("WARN: taskType detection site not found exactly, skipping")
+else:
+    content = content.replace(old_task, new_task, 1)
+    print("3. Smarter taskType detection added")
+
+open("worker.ts", "w").write(content)
+print("ALL PATCHES APPLIED, new size:", len(content))
+PY
+          ! grep -q PLACEHOLDER worker.ts
+          npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+          echo "esbuild OK"
+      - name: Commit and push
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "feat: monster web-search (Gemini 1st) + distinct task-specific model chains"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
