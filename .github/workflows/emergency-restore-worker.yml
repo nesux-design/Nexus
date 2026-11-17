@@ -16,14 +16,16 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Restore worker from day39
+      - name: Restore worker from last good tip
         run: |
           set -e
-          curl -fsSL "https://raw.githubusercontent.com/nesux-design/Nexus/6d523c8c6c23715e5a959b4aa35afdf3c1311596/worker.ts" -o worker.ts
+          # Last known good before accidental PLACEHOLDER (e9945547 tree, blob 8b85de36)
+          curl -fsSL "https://raw.githubusercontent.com/nesux-design/Nexus/e9945547b1565a8d4f0c831e934ef664e159fc16/worker.ts" -o worker.ts
           test -s worker.ts
-          grep -q PHASE_B_DAY39 worker.ts
-          ! grep -q PLACEHOLDER_WILL_FAIL worker.ts
+          ! grep -q PLACEHOLDER_TOO_LARGE worker.ts
+          ! grep -q "PLACEHOLDER_WILL_FAIL" worker.ts
           wc -c worker.ts
+          head -c 80 worker.ts
       - name: esbuild smoke
         run: npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
       - name: Commit restored worker
@@ -34,7 +36,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "already good"
           else
-            git commit -m "fix: restore worker.ts from phase-b-day39 baseline (remove PLACEHOLDER)"
+            git commit -m "fix: restore worker.ts from e9945547 good tip (unbreak PLACEHOLDER accident)"
             git pull --rebase origin main || true
             git push origin HEAD:main
           fi
