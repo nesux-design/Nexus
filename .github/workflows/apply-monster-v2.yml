@@ -1,0 +1,130 @@
+name: Apply monster search + routing v2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-monster-v2.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch worker.ts
+        run: |
+          set -e
+          python3 -c '
+content = open("worker.ts").read()
+assert "PLACEHOLDER" not in content[:200]
+
+old = """async function performWebSearchUncached(query) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().split(\"T\")[0];
+  const datedQuery = query + \" \" + today;
+  try {
+    const groqResult = await callGroqCompound(
+      [{ role: \"user\", content: datedQuery }],
+      true
+    );
+    if (groqResult && groqResult.content && groqResult.content.length > 50) {
+      console.log(\"\\u2705 Web Search: Groq Compound found results\");
+      return groqResult;
+    }
+  } catch (e) {
+    console.error(\"Groq Compound failed:\", e.message);
+  }
+  try {
+    const geminiResult = await webSearchGeminiFlash(datedQuery);
+    if (geminiResult && geminiResult.content && geminiResult.content.length > 50) {
+      console.log(\"\\u2705 Web Search: Gemini Flash found results\");
+      return geminiResult;
+    }
+  } catch (e) {
+    console.error(\"Gemini Flash failed:\", e.message);
+  }"""
+
+new = """async function performWebSearchUncached(query) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().split(\"T\")[0];
+  const datedQuery = query + \" \" + today + \" latest current up-to-date\";
+  try {
+    const geminiResult = await webSearchGeminiFlash(datedQuery);
+    if (geminiResult && geminiResult.content && geminiResult.content.length > 50) {
+      console.log(\"\\u2705 Web Search: Gemini Flash found results\");
+      return geminiResult;
+    }
+  } catch (e) {
+    console.error(\"Gemini Flash failed:\", e.message);
+  }
+  try {
+    const groqResult = await callGroqCompound(
+      [{ role: \"user\", content: datedQuery }],
+      true
+    );
+    if (groqResult && groqResult.content && groqResult.content.length > 50) {
+      console.log(\"\\u2705 Web Search: Groq Compound found results\");
+      return groqResult;
+    }
+  } catch (e) {
+    console.error(\"Groq Compound failed:\", e.message);
+  }"""
+
+if old not in content:
+    raise SystemExit("search block missing")
+content = content.replace(old, new, 1)
+print("search order OK")
+
+oldc = """  let modelChain;
+  if (taskType === \"code\" || priorityMode === \"speed\") {
+    modelChain = [\"mimo\", \"groq\", \"gemini\", \"cerebras\", \"sambanova\"];
+  } else if (taskType === \"creative\") {
+    modelChain = [\"mimo\", \"gemini\", \"groq\", \"sambanova\", \"cerebras\"];
+  } else if (priorityMode === \"quality\") {
+    modelChain = [\"gemini\", \"groq\", \"mimo\", \"sambanova\", \"cerebras\"];
+  } else {
+    modelChain = [\"gemini\", \"mimo\", \"groq\", \"cerebras\", \"sambanova\"];
+  }"""
+
+newc = """  let modelChain;
+  if (taskType === \"code\" || priorityMode === \"speed\") {
+    modelChain = [\"groq\", \"mimo\", \"gemini\", \"cerebras\", \"sambanova\"];
+  } else if (taskType === \"creative\") {
+    modelChain = [\"gemini\", \"mimo\", \"groq\", \"sambanova\", \"cerebras\"];
+  } else if (taskType === \"research\" || taskType === \"analysis\" || priorityMode === \"quality\") {
+    modelChain = [\"gemini\", \"groq\", \"mimo\", \"sambanova\", \"cerebras\"];
+  } else if (taskType === \"math\" || taskType === \"reasoning\") {
+    modelChain = [\"gemini\", \"groq\", \"mimo\", \"cerebras\", \"sambanova\"];
+  } else {
+    modelChain = [\"gemini\", \"groq\", \"mimo\", \"cerebras\", \"sambanova\"];
+  }"""
+
+if oldc not in content:
+    raise SystemExit("chains missing")
+content = content.replace(oldc, newc, 1)
+print("chains OK")
+
+oldt = "taskType: reasoning.plan?.approach === \\"code\\" ? \\"code\\" : reasoning.plan?.approach === \\"creative\\" ? \\"creative\\" : \\"general\\","
+newt = """taskType: (function(){const a=(reasoning.plan&&reasoning.plan.approach)||\"\";const q=String(query||message||\"\").toLowerCase();if(a===\"code\"||/\\b(code|program|function|bug|debug|typescript|python|javascript|react|api)\\b/.test(q))return\"code\";if(a===\"creative\"||/\\b(story|poem|write a|creative|fiction|script)\\b/.test(q))return\"creative\";if(a===\"research\"||/\\b(research|analyse|analyze|compare|latest|news|explain in depth|deep dive)\\b/.test(q))return\"research\";if(/\\b(math|calculate|equation|solve|proof|derivative|integral)\\b/.test(q))return\"math\";return\"general\";})(),"""
+if oldt in content:
+    content = content.replace(oldt, newt, 1)
+    print("taskType OK")
+else:
+    print("taskType skip")
+
+open("worker.ts","w").write(content)
+print("done", len(content))
+'
+          ! grep -q PLACEHOLDER worker.ts
+          npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          git diff --staged --quiet || git commit -m "feat: Gemini-first web search + distinct task model chains (monster)"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
