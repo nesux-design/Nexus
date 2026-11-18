@@ -3718,7 +3718,7 @@ async function callOpenDeep(messages) {
         "User-Agent": "Nexus-AI/8.0"
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-v4.1-flash",
+        model: "nvidia/nemotron-3.5-super-vl:free",
         messages: finalMessages,
         temperature: 0.25,
         max_tokens: CONFIG.MAX_TOKENS_MIMO
@@ -5027,7 +5027,7 @@ async function analyzeImageWithOpenDeep(imageData, prompt) {
         "X-Title": CONFIG.APP_NAME
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-v4.1-flash",
+        model: "nvidia/nemotron-3.5-super-vl:free",
         messages: [{
           role: "user",
           content: [
@@ -6087,7 +6087,7 @@ async function* quantumMimoStream(messages) {
         "X-Title": CONFIG.APP_NAME
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-v4.1-flash",
+        model: "nvidia/nemotron-3.5-super-vl:free",
         messages,
         temperature: 0.3,
         max_tokens: CONFIG.MAX_TOKENS_MIMO,
@@ -7885,7 +7885,7 @@ async function resolveToolIntent(userMessage, context, hasLastImage, lastImageDe
   const cerebrasResult = await resolveViaOpenAICompatible("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
   if (cerebrasResult)
     return cerebrasResult;
-  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4.1-flash", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
+  const openDeepResult = await resolveViaOpenAICompatible("openrouter", "https://openrouter.ai/api/v1/chat/completions", "nvidia/nemotron-3.5-super-vl:freeh", userMessage, context, hasLastImage, lastImageDesc, allOpenAI);
   if (openDeepResult)
     return openDeepResult;
   return { action: "general_chat", args: {}, reasoning: "All tool resolvers unavailable", confidence: 0.3, resolvedBy: "none" };
