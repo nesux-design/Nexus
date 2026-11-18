@@ -193,24 +193,33 @@ var __defProp22 = Object.defineProperty;
 var __name22 = /* @__PURE__ */ __name2((target, value) => __defProp22(target, "name", { value, configurable: true }), "__name");
 function getCurrentDate() {
   const now = new Date();
-  const istOffsetMs = 5.5 * 60 * 60 * 1000;
-  const ist = new Date(now.getTime() + istOffsetMs);
   const pad = (n) => String(n).padStart(2, "0");
   const weekday = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  function formatInZone(timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone, weekday: "long", year: "numeric", month: "long", day: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true
+      }).formatToParts(now);
+      const g = (t) => (parts.find((p) => p.type === t) || {}).value || "";
+      return g("weekday") + ", " + g("day") + " " + g("month") + " " + g("year") + " " + g("hour") + ":" + g("minute") + ":" + g("second") + " " + g("dayPeriod") + " (" + timeZone + ")";
+    } catch (e) { return now.toISOString() + " (" + timeZone + ")"; }
+  }
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   return {
-    year: now.getUTCFullYear(),
-    month: pad(now.getUTCMonth() + 1),
-    day: pad(now.getUTCDate()),
-    hours: pad(now.getUTCHours()),
-    minutes: pad(now.getUTCMinutes()),
+    year: now.getUTCFullYear(), month: pad(now.getUTCMonth() + 1), day: pad(now.getUTCDate()),
+    hours: pad(now.getUTCHours()), minutes: pad(now.getUTCMinutes()),
     full: now.getUTCFullYear() + "-" + pad(now.getUTCMonth() + 1) + "-" + pad(now.getUTCDate()),
-    timestamp: Date.now(),
-    iso: now.toISOString(),
-    unix: Math.floor(now.getTime() / 1e3),
-    utcString: weekday[now.getUTCDay()] + ", " + now.getUTCDate() + " " + months[now.getUTCMonth()] + " " + now.getUTCFullYear() + " " + pad(now.getUTCHours()) + ":" + pad(now.getUTCMinutes()) + ":" + pad(now.getUTCSeconds()) + " UTC",
-    istString: weekday[ist.getUTCDay()] + ", " + ist.getUTCDate() + " " + months[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + pad(ist.getUTCHours()) + ":" + pad(ist.getUTCMinutes()) + ":" + pad(ist.getUTCSeconds()) + " IST",
-    dayName: weekday[ist.getUTCDay()]
+    timestamp: Date.now(), iso: now.toISOString(), unix: Math.floor(now.getTime() / 1e3),
+    utcString: formatInZone("UTC"), istString: formatInZone("Asia/Kolkata"),
+    zones: {
+      UTC: formatInZone("UTC"), IST: formatInZone("Asia/Kolkata"),
+      EST: formatInZone("America/New_York"), PST: formatInZone("America/Los_Angeles"),
+      GMT: formatInZone("Europe/London"), CET: formatInZone("Europe/Paris"),
+      Dubai: formatInZone("Asia/Dubai"), Singapore: formatInZone("Asia/Singapore"),
+      Tokyo: formatInZone("Asia/Tokyo"), Sydney: formatInZone("Australia/Sydney")
+    },
+    formatInZone, dayName: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][ist.getUTCDay()]
   };
 }
 __name(getCurrentDate, "getCurrentDate");
@@ -1514,11 +1523,18 @@ When the user asks for mathematical, scientific, or academic content:
 
 ${getCapabilitiesSection()}
 
-**CRITICAL TIME (live — never invent clock time from search):**
-- IST: ${getCurrentDate().istString}
+**CRITICAL TIME (live — never invent clock time):**
+- IST (India): ${getCurrentDate().istString}
 - UTC: ${getCurrentDate().utcString}
+- US Eastern: ${getCurrentDate().zones.EST}
+- US Pacific: ${getCurrentDate().zones.PST}
+- London: ${getCurrentDate().zones.GMT}
+- Dubai: ${getCurrentDate().zones.Dubai}
+- Singapore: ${getCurrentDate().zones.Singapore}
+- Tokyo: ${getCurrentDate().zones.Tokyo}
+- Sydney: ${getCurrentDate().zones.Sydney}
 - Date: ${getCurrentDate().full} | Year: ${getCurrentDate().year}
-For "current time / abhi kitna baja" answer ONLY from the lines above. For weather "right now", prefer latest observation timestamps.`;
+If user asks time for a listed zone/city, answer from this block. For other cities, use web search or nearest major zone. Never invent a clock time.`;
 }
 __name(getMasterPrompt, "getMasterPrompt");
 var AI_AGENTS = {
@@ -3498,17 +3514,23 @@ async function withRetry(fn, retries, delayMs) {
 __name(withRetry, "withRetry");
 __name2(withRetry, "withRetry");
 async function callSpecificModel(modelName, prompt, messages, enableWebSearch) {
+  const baseMsgs = Array.isArray(messages) ? messages : [];
+  const withSystem = (msgs) => {
+    if (!prompt || typeof prompt !== "string" || prompt.length < 40) return msgs;
+    if (msgs.some((m) => m && m.role === "system")) return msgs;
+    return [{ role: "system", content: prompt }, ...msgs.filter((m) => m && m.role !== "system")];
+  };
   switch (modelName) {
     case "gemini":
       return await callGemini(prompt, enableWebSearch);
     case "groq":
-      return await callGroq(messages, enableWebSearch);
+      return await callGroq(withSystem(baseMsgs), enableWebSearch);
     case "mimo":
-      return await callOpenDeep(messages);
+      return await callOpenDeep(withSystem(baseMsgs));
     case "cerebras":
-      return await callCerebras(messages);
+      return await callCerebras(withSystem(baseMsgs));
     case "sambanova":
-      return await callSambaNova(messages);
+      return await callSambaNova(withSystem(baseMsgs));
     default:
       return null;
   }
@@ -3672,13 +3694,20 @@ __name2(callGroq, "callGroq");
 __name22(callGroq, "callGroq");
 async function callOpenDeep(messages) {
   const key = getNextKey("openrouter");
-  if (!key)
+  if (!key) {
+    console.log("mimo/OpenRouter: no key");
     return null;
+  }
   try {
     const controller = new AbortController();
     const timeout = setTimeout(function() {
       controller.abort();
     }, CONFIG.MODEL_TIMEOUT);
+    const hasSystem = Array.isArray(messages) && messages.some((m) => m && m.role === "system");
+    const finalMessages = hasSystem ? messages : [
+      { role: "system", content: getMasterPrompt() + "\n\nWhen the user asks for code: respond with correct, complete, well-structured code first; then a brief explanation. Prefer clarity and correctness over fluff." },
+      ...(messages || [])
+    ];
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -3690,10 +3719,7 @@ async function callOpenDeep(messages) {
       },
       body: JSON.stringify({
         model: "deepseek/deepseek-v4.1-flash",
-        messages: [
-          { role: "system", content: getMasterPrompt() + "\n\nWhen the user asks for code: respond with correct, complete, well-structured code first; then a brief explanation. Prefer clarity and correctness over fluff." },
-          ...messages
-        ],
+        messages: finalMessages,
         temperature: 0.25,
         max_tokens: CONFIG.MAX_TOKENS_MIMO
       }),
@@ -3703,13 +3729,14 @@ async function callOpenDeep(messages) {
     if (response.ok) {
       const data = await response.json();
       const text = data.choices?.[0]?.message?.content;
-      if (text)
-        return text;
-    }
-    if (response.status === 429) {
-      markKeyFailed("openrouter", key, 60);
+      if (text) return text;
+      console.log("mimo/OpenRouter: empty content");
+    } else {
+      console.log("mimo/OpenRouter failed:", response.status);
+      if (response.status === 429) markKeyFailed("openrouter", key, 60);
     }
   } catch (e) {
+    console.log("mimo/OpenRouter error:", e && e.message);
   }
   return null;
 }
