@@ -192,17 +192,25 @@ var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name
 var __defProp22 = Object.defineProperty;
 var __name22 = /* @__PURE__ */ __name2((target, value) => __defProp22(target, "name", { value, configurable: true }), "__name");
 function getCurrentDate() {
-  const now = /* @__PURE__ */ new Date();
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(now.getTime() + istOffsetMs);
+  const pad = (n) => String(n).padStart(2, "0");
+  const weekday = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   return {
     year: now.getUTCFullYear(),
-    month: String(now.getUTCMonth() + 1).padStart(2, "0"),
-    day: String(now.getUTCDate()).padStart(2, "0"),
-    hours: String(now.getUTCHours()).padStart(2, "0"),
-    minutes: String(now.getUTCMinutes()).padStart(2, "0"),
-    full: now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-" + String(now.getUTCDate()).padStart(2, "0"),
+    month: pad(now.getUTCMonth() + 1),
+    day: pad(now.getUTCDate()),
+    hours: pad(now.getUTCHours()),
+    minutes: pad(now.getUTCMinutes()),
+    full: now.getUTCFullYear() + "-" + pad(now.getUTCMonth() + 1) + "-" + pad(now.getUTCDate()),
     timestamp: Date.now(),
     iso: now.toISOString(),
-    unix: Math.floor(now.getTime() / 1e3)
+    unix: Math.floor(now.getTime() / 1e3),
+    utcString: weekday[now.getUTCDay()] + ", " + now.getUTCDate() + " " + months[now.getUTCMonth()] + " " + now.getUTCFullYear() + " " + pad(now.getUTCHours()) + ":" + pad(now.getUTCMinutes()) + ":" + pad(now.getUTCSeconds()) + " UTC",
+    istString: weekday[ist.getUTCDay()] + ", " + ist.getUTCDate() + " " + months[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + pad(ist.getUTCHours()) + ":" + pad(ist.getUTCMinutes()) + ":" + pad(ist.getUTCSeconds()) + " IST",
+    dayName: weekday[ist.getUTCDay()]
   };
 }
 __name(getCurrentDate, "getCurrentDate");
@@ -1506,8 +1514,11 @@ When the user asks for mathematical, scientific, or academic content:
 
 ${getCapabilitiesSection()}
 
-**Today's Date: ${TODAY}**
-**Current Year: ${CURRENT_YEAR}**`;
+**CRITICAL TIME (live — never invent clock time from search):**
+- IST: ${getCurrentDate().istString}
+- UTC: ${getCurrentDate().utcString}
+- Date: ${getCurrentDate().full} | Year: ${getCurrentDate().year}
+For "current time / abhi kitna baja" answer ONLY from the lines above. For weather "right now", prefer latest observation timestamps.`;
 }
 __name(getMasterPrompt, "getMasterPrompt");
 var AI_AGENTS = {
@@ -2879,7 +2890,7 @@ async function webSearchGeminiFlash(query) {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: "Search the web for the most recent information about: " + query + ". Today is " + TODAY + ". Provide specific details, dates, names, and sources."
+              text: "Search the web for the most recent information about: " + query + ". Today is " + getCurrentDate().full + " (" + (getCurrentDate().istString || "") + "). Provide specific details, dates, names, and sources."
             }]
           }],
           generationConfig: {
@@ -5016,18 +5027,19 @@ __name(analyzeImageWithOpenDeep, "analyzeImageWithOpenDeep");
 __name2(analyzeImageWithOpenDeep, "analyzeImageWithOpenDeep");
 __name22(analyzeImageWithOpenDeep, "analyzeImageWithOpenDeep");
 async function quantumVisionAnalyze(imageData, prompt) {
+  // Order fixed: Gemini → Gemma → GLM → OpenRouter (4th mode)
   const geminiResult = await analyzeImageWithGemini(imageData, prompt);
   if (geminiResult)
     return { analysis: geminiResult, provider: "Gemini 2.5 Flash", success: true };
   const gemmaResult = await analyzeImageWithGemma(imageData, prompt);
   if (gemmaResult)
     return { analysis: gemmaResult, provider: "Gemma-3 (SambaNova)", success: true };
-  const openDeepResult = await analyzeImageWithOpenDeep(imageData, prompt);
-  if (openDeepResult)
-    return { analysis: openDeepResult, provider: "DeepSeek V4.1 Flash (OpenRouter)", success: true };
   const glmResult = await analyzeImageWithGLM(imageData, prompt);
   if (glmResult)
     return { analysis: glmResult, provider: "GLM-4V (Zhipu AI)", success: true };
+  const openDeepResult = await analyzeImageWithOpenDeep(imageData, prompt);
+  if (openDeepResult)
+    return { analysis: openDeepResult, provider: "OpenRouter Vision", success: true };
   return { success: false, error: "All vision engines failed" };
 }
 __name(quantumVisionAnalyze, "quantumVisionAnalyze");
@@ -5522,7 +5534,7 @@ async function quantumResponse(env2, query, context, userInfo, options) {
     const searchResult = await performWebSearch(query);
     if (searchResult && searchResult.content) {
       didRunWebSearch = true;
-      enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + TODAY + "**\n\n" + enrichedContext;
+      enrichedContext = "\n\n**\u{1F310} LIVE SEARCH (Source: " + searchResult.source + "):**\n" + searchResult.content + "\n\n**\u26A0\uFE0F PRIMARY DATA - Today: " + getCurrentDate().full + " | " + (getCurrentDate().istString || "") + "**\n\n" + enrichedContext;
       if (searchResult.sources && searchResult.sources.length > 0) {
         webSources = normalizeWebSources(searchResult.sources);
         const citationList = webSources.map((s, i) => `[${i + 1}] ${s.title}`).join("\n");
@@ -6727,7 +6739,7 @@ async function divineTextToVoice(text, language) {
       if (!voiceId)
         continue;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25e3);
+      const timeout = setTimeout(() => controller.abort(), 8e3);
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         method: "POST",
         headers: {
@@ -8639,6 +8651,18 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   }
   if (!message || !String(message).trim()) {
     return apiError("EMPTY_MESSAGE", "message is required", 400);
+  }
+  // Pure current-time — never search
+  const pureTimeRe = /^(what('?s| is)? (the )?(current )?time( now)?|current time|abhi (kitna|kya) (baja|time)|time (kya|kitna) (hai|hua)|what time is it( now)?|kitna baja hai|abhi ka time)[?.!\s]*$/i;
+  if (pureTimeRe.test(String(message).trim())) {
+    const d = getCurrentDate();
+    const resp = "**Current time (live)**\n\n- **IST:** " + d.istString + "\n- **UTC:** " + d.utcString + "\n\nExact at the moment of this reply.";
+    return new Response(JSON.stringify({
+      response: resp, intent: "general_chat", model: "nexus-clock", latency: Date.now() - startTime,
+      schemaVersion: 2, searchPerformed: false, confidence: 1.0,
+      requestId: (typeof newRequestId === "function" ? newRequestId() : ("clk_" + Date.now())),
+      created: new Date().toISOString(), userId: auth.userId
+    }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
   }
   if (message && /\b(remember|yaad\s*rakh)/i.test(message)) {
     const memSystemAuto = new MemorySystem(env2, auth.userId, auth.supabase);
