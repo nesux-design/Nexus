@@ -1,0 +1,47 @@
+name: Apply monster search + specialized routing
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-monster-v1.yml'
+      - 'scripts/patch-monster-v1.py'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Ensure worker is not PLACEHOLDER
+        run: |
+          set -e
+          test -s worker.ts
+          ! grep -q PLACEHOLDER_TOO_LARGE worker.ts
+          ! grep -q PLACEHOLDER_WILL_FAIL worker.ts
+          wc -c worker.ts
+      - name: Run monster patch
+        run: |
+          set -e
+          python3 scripts/patch-monster-v1.py
+          grep -q "Gemini first" worker.ts
+          grep -q "classifyQueryIntent" worker.ts
+          grep -q "Monster specialized chains" worker.ts
+          npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+          wc -c worker.ts
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts
+          if git diff --staged --quiet; then
+            echo "no changes"
+          else
+            git commit -m "feat: monster web search (Gemini→Groq) + keyword specialized chains (code/creative/search)"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
