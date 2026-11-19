@@ -254,7 +254,7 @@ var CONFIG = {
       // Gemini 2.5 Flash-Lite: 1M input, 65K output
       groq: 131072,
       // Groq GPT-OSS 120B: 131K input, 65K output
-      mimo: 1e6,
+      mimo: 1000000,
       // NVIDIA Nemotron: 262K input, 262K output
       cerebras: 8192,
       // Cerebras Llama 3.1 8B: 8K input, 8K output
@@ -285,7 +285,7 @@ var CONFIG = {
   // ╚══════════════════════════════════════════════════════════╝
   MAX_TOKENS_GEMINI: 65536,
   MAX_TOKENS_GROQ: 65536,
-  MAX_TOKENS_MIMO: 5e4,
+  MAX_TOKENS_MIMO: 450000,
   MAX_TOKENS_CEREBRAS: 8193,
   MAX_TOKENS_SAMBANOVA: 2048,
   MAX_TOKENS_GLM: 32768,
