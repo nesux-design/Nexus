@@ -1,0 +1,36 @@
+name: Apply phase B day45
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_phase_b_day45.py'
+      - '.github/workflows/apply-phase-b-day45.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply Day45
+        run: |
+          set -e
+          python3 scripts/apply_phase_b_day45.py
+          grep -q 'PHASE_B_DAY45' mcp-client.js
+          test $(wc -c < mcp-client.js) -gt 15000
+          ! grep -qx 'PLACEHOLDER' mcp-client.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add mcp-client.js worker.ts docs/PHASE-B-DAY45.md 2>/dev/null || git add mcp-client.js worker.ts || true
+          if git diff --staged --quiet; then echo no changes; else
+            git commit -m "feat(phase-b-day45): embed authorize_url on MCP oauth_required (stream+non-stream)"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
