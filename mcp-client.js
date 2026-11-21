@@ -126,11 +126,20 @@ export async function listMcpTools(env, userId, connector) {
     const oauthNeeded =
       r.status === 401 ||
       /provider_authorization_required|oauth_required|authorization required|unauthorized/i.test(errStr);
+    // PHASE_B_DAY45 - list path also surfaces authorize_url when provider needs consent
+    let authorize_url = null;
+    if (oauthNeeded) {
+      try {
+        const start = await getMcpOAuthStart(env, userId, connector);
+        if (start && start.success && start.authorize_url) authorize_url = start.authorize_url;
+      } catch (_) {}
+    }
     return {
       success: false,
       status: r.status,
       error: r.error,
       oauth_required: oauthNeeded,
+      authorize_url,
       wwwAuthenticate: r.wwwAuthenticate,
       tools: []
     };
@@ -144,6 +153,7 @@ export async function listMcpTools(env, userId, connector) {
 }
 
 export async function callMcpTool(env, userId, connector, name, args = {}) {
+  // PHASE_B_DAY45 - on oauth_required, embed authorize_url here (single source for stream + non-stream)
   const rpc = {
     jsonrpc: "2.0",
     id: crypto.randomUUID(),
@@ -159,11 +169,19 @@ export async function callMcpTool(env, userId, connector, name, args = {}) {
     const oauthNeeded =
       r.status === 401 ||
       /provider_authorization_required|oauth_required|authorization required|unauthorized/i.test(errStr);
+    let authorize_url = null;
+    if (oauthNeeded) {
+      try {
+        const start = await getMcpOAuthStart(env, userId, connector);
+        if (start && start.success && start.authorize_url) authorize_url = start.authorize_url;
+      } catch (_) {}
+    }
     return {
       success: false,
       status: r.status,
       error: r.error,
       oauth_required: oauthNeeded,
+      authorize_url,
       wwwAuthenticate: r.wwwAuthenticate,
       data: r.data
     };

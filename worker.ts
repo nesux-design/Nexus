@@ -6395,12 +6395,15 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
               ? buildMcpThinkingSteps({ message, connector: forcedMcp.connector, tool: forcedMcp.name, result: mcpResult })
               : [];
             if (mcpResult && mcpResult.oauth_required) {
-              // PHASE_B_DAY40 — real authorize_url on stream path
+              // PHASE_B_DAY45 - prefer authorize_url from callMcpTool; fallback probe
               let authStart = null;
-              try {
-                if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, forcedMcp.connector);
-              } catch (_) {}
-              const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || mcpResult.reauth_url || null;
+              let authUrl = mcpResult.authorize_url || mcpResult.reauth_url || null;
+              if (!authUrl) {
+                try {
+                  if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, forcedMcp.connector);
+                } catch (_) {}
+                authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
+              }
               const msg = authUrl
                 ? ("Please authorize MCP **" + forcedMcp.connector + "** first, then ask again.\n\n" + authUrl)
                 : ((mcpResult.message || "Please reconnect MCP") + (mcpResult.reauth_url ? "\n" + mcpResult.reauth_url : ""));
@@ -8984,10 +8987,14 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       ? buildMcpThinkingSteps({ message, connector, tool: toolName, result: mcpResult })
       : (thinking.thinking_steps || []);
     if (mcpResult && mcpResult.oauth_required) {
+      // PHASE_B_DAY45 - prefer authorize_url already embedded by callMcpTool
       let authStart = null;
-      try { authStart = await getMcpOAuthStart(env2, auth.userId, connector); } catch (_) {}
-      // PHASE_B_DAY40 — Claude-style reauth
-      const authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
+      let authUrl = mcpResult.authorize_url || mcpResult.reauth_url || null;
+      if (!authUrl) {
+        try { authStart = await getMcpOAuthStart(env2, auth.userId, connector); } catch (_) {}
+        authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
+      }
+      // PHASE_B_DAY40 - Claude-style reauth
       const msg = authUrl
         ? ("Please authorize MCP **" + connector + "** first, then ask the same question again.\n\n" + authUrl)
         : ("Please authorize MCP **" + connector + "** first. Use action `mcp_oauth_start`.");
