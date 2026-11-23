@@ -8825,7 +8825,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
     }
   }
   // PHASE_B_DAY36 — ensure MCP tools for named connectors even if catalog was empty
-  if (thinking.action === "general_chat" && typeof ensureMcpToolsForMessage === "function") {
+  // PHASE_B_DAY46 — also when planner wrongly chose web_search (e.g. "cloudflare whoami")
+  if ((thinking.action === "general_chat" || thinking.action === "web_search") && typeof ensureMcpToolsForMessage === "function") {
     try {
       thinking.mcp_tools = await ensureMcpToolsForMessage(env2, auth.userId, message, thinking.mcp_tools || []);
     } catch (e) {
@@ -8834,7 +8835,8 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
   }
   // PHASE_B_DAY39 — named MCP connector => force execute_mcp so user gets reauth URL, not CLI tutorial
   // PHASE_B_DAY41 — probe even if OTHER connectors already filled mcp_tools (was skipping cloudflare oauth)
-  if (thinking.action === "general_chat" && typeof listMcpTools === "function") {
+  // PHASE_B_DAY46 — override web_search when user named an MCP connector
+  if ((thinking.action === "general_chat" || thinking.action === "web_search") && typeof listMcpTools === "function") {
     try {
       const m = String(message || "").toLowerCase();
       const named = [];
@@ -8877,7 +8879,23 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       console.error("PHASE_B_DAY39 mcp oauth probe", e && e.message);
     }
   }
-  if (thinking.action === "general_chat" && thinking.mcp_tools && thinking.mcp_tools.length && typeof matchMcpFromMessage === "function") {
+  // PHASE_B_DAY46 — hard force: "cloudflare whoami" style must never stay on web_search
+  if ((thinking.action === "general_chat" || thinking.action === "web_search") && /\b(cloudflare|github|vercel|netlify|supabase|linear|notion)\b/i.test(String(message||"")) && /\b(whoami|identity|profile|connected)\b/i.test(String(message||""))) {
+    const m = String(message || "").toLowerCase();
+    let id = "cloudflare";
+    if (m.includes("github")) id = "github";
+    else if (m.includes("vercel")) id = "vercel";
+    else if (m.includes("netlify")) id = "netlify";
+    else if (m.includes("supabase")) id = "supabase";
+    else if (m.includes("linear")) id = "linear";
+    else if (m.includes("notion")) id = "notion";
+    else if (m.includes("cloudflare")) id = "cloudflare";
+    thinking.action = "execute_mcp";
+    thinking.args = { connector: id, tool: "whoami" };
+    thinking.reasoning = (thinking.reasoning || "") + " | DAY46 hard force MCP whoami: " + id;
+    thinking.confidence = Math.max(thinking.confidence || 0, 0.96);
+  }
+  if ((thinking.action === "general_chat" || thinking.action === "web_search") && thinking.mcp_tools && thinking.mcp_tools.length && typeof matchMcpFromMessage === "function") {
     const forcedMcp = matchMcpFromMessage(message, thinking.mcp_tools);
     if (forcedMcp) {
       thinking.action = "execute_mcp";
