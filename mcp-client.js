@@ -306,23 +306,41 @@ export function buildMcpAnswerPrompt(userMessage, connector, tool, data) {
 }
 
 export async function getMcpOAuthStart(env, userId, connectorId) {
+  // PILLAR1_OAUTH_BRIDGE
   const connector = String(connectorId || "").trim();
   if (!connector) return { success: false, error: "connector required" };
   if (!Object.prototype.hasOwnProperty.call(MCP_GATEWAY_CONNECTORS, connector)) {
     return { success: false, error: "Unknown MCP connector: " + connector };
   }
-  const result = await mcpGatewayFetch(env, userId, mcpOAuthStartPath(connector), { method: "GET", redirect: "manual" });
-  const location = result.location || result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location;
+  const secret = env?.NEXUS_INTERNAL_AUTH_SECRET || env?.NEXUS_AUTH_SECRET || env?.MCP_AUTH_SECRET || env?.NEXUS_HMAC_SECRET;
+  const signature = await signNexusUser(userId, secret);
+  if (!userId || !signature) {
+    return { success: false, connector, error: "Missing NEXUS_INTERNAL_AUTH_SECRET or userId" };
+  }
+  const base = String(mcpBase(env)).replace(/\/$/, "");
+  const path = mcpOAuthStartPath(connector);
+  let result = { ok: false, status: 0, error: null, data: null, location: null, headers: {} };
+  try {
+    const res = await fetch(base + path, {
+      method: "GET",
+      headers: { Accept: "application/json", "X-Nexus-User-Id": String(userId), "X-Nexus-Signature": signature },
+      redirect: "manual"
+    });
+    const location = res.headers.get("location") || null;
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text ? { raw: text } : null; }
+    const isRedirect = res.status >= 300 && res.status < 400 && !!location;
+    result = { ok: res.ok || isRedirect, status: res.status, error: (res.ok || isRedirect) ? null : (data?.error || data?.message || ("HTTP " + res.status)), data, location, headers: { location } };
+  } catch (e) {
+    result = await mcpGatewayFetch(env, userId, path, { method: "GET", redirect: "manual" });
+  }
+  let location = result.location || result.headers?.location || result.data?.authorize_url || result.data?.url || result.data?.location || null;
+  if (location && location.startsWith("/")) location = base + location;
   if (location && /^https?:\/\//i.test(location)) {
     return { success: true, connector, authorize_url: location, status: result.status };
   }
-  return {
-    success: false,
-    connector,
-    error: result.error || result.data?.message || "oauth_start_failed",
-    status: result.status,
-    data: result.data
-  };
+  return { success: false, connector, error: result.error || result.data?.message || "oauth_start_failed", status: result.status, data: result.data, start_path: base + path, authorize_url: null };
 }
 
 // PHASE_B_DAY36 — if catalog empty, still try connectors named in the user message

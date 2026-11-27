@@ -6397,13 +6397,7 @@ async function ultimateChatHandler(env2, message, context, userId, sessionId, ip
             if (mcpResult && mcpResult.oauth_required) {
               // PHASE_B_DAY45 - prefer authorize_url from callMcpTool; fallback probe
               let authStart = null;
-              let authUrl = mcpResult.authorize_url || mcpResult.reauth_url || null;
-              if (!authUrl) {
-                try {
-                  if (typeof getMcpOAuthStart === "function") authStart = await getMcpOAuthStart(env2, userId, forcedMcp.connector);
-                } catch (_) {}
-                authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
-              }
+              let authUrl = await resolveMcpAuthorizeUrl(env2, userId, forcedMcp.connector, mcpResult);
               const msg = authUrl
                 ? ("Please authorize MCP **" + forcedMcp.connector + "** first, then ask again.\n\n" + authUrl)
                 : ((mcpResult.message || "Please reconnect MCP") + (mcpResult.reauth_url ? "\n" + mcpResult.reauth_url : ""));
@@ -8099,6 +8093,41 @@ async function handleSlackCommandCenter2026(request, env2) {
 __name(handleSlackCommandCenter2026, "handleSlackCommandCenter2026");
 __name2(handleSlackCommandCenter2026, "handleSlackCommandCenter2026");
 __name22(handleSlackCommandCenter2026, "handleSlackCommandCenter2026");
+// PILLAR1_OAUTH_BRIDGE
+async function signMcpOAuthBridge(userId, connector, secret, expSec) {
+  const exp = expSec || (Math.floor(Date.now() / 1000) + 900);
+  const payload = String(userId) + "|" + String(connector) + "|" + String(exp);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const sig = [...new Uint8Array(sigBuf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return { exp, sig };
+}
+async function buildMcpOAuthBridgeUrl(env2, userId, connector) {
+  const secret = env2?.NEXUS_INTERNAL_AUTH_SECRET || env2?.NEXUS_AUTH_SECRET || env2?.MCP_AUTH_SECRET || env2?.NEXUS_HMAC_SECRET;
+  if (!secret || !userId || !connector) return null;
+  try {
+    const { exp, sig } = await signMcpOAuthBridge(userId, connector, secret);
+    const u = new URL(CONFIG.WORKER_URL + "/oauth/mcp/" + encodeURIComponent(connector));
+    u.searchParams.set("u", String(userId));
+    u.searchParams.set("e", String(exp));
+    u.searchParams.set("s", sig);
+    return u.toString();
+  } catch (_) { return null; }
+}
+async function resolveMcpAuthorizeUrl(env2, userId, connector, mcpResult) {
+  let url = (mcpResult && (mcpResult.authorize_url || mcpResult.reauth_url)) || null;
+  if (url && /^https?:\/\//i.test(url)) return url;
+  try {
+    if (typeof getMcpOAuthStart === "function") {
+      const start = await getMcpOAuthStart(env2, userId, connector);
+      if (start && start.authorize_url && /^https?:\/\//i.test(start.authorize_url)) return start.authorize_url;
+    }
+  } catch (_) {}
+  return await buildMcpOAuthBridgeUrl(env2, userId, connector);
+}
+__name(signMcpOAuthBridge, "signMcpOAuthBridge");
+__name(buildMcpOAuthBridgeUrl, "buildMcpOAuthBridgeUrl");
+__name(resolveMcpAuthorizeUrl, "resolveMcpAuthorizeUrl");
 var CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -9005,17 +9034,10 @@ async function handleChatAction(env2, request, auth, body, params, ctx) {
       ? buildMcpThinkingSteps({ message, connector, tool: toolName, result: mcpResult })
       : (thinking.thinking_steps || []);
     if (mcpResult && mcpResult.oauth_required) {
-      // PHASE_B_DAY45 - prefer authorize_url already embedded by callMcpTool
-      let authStart = null;
-      let authUrl = mcpResult.authorize_url || mcpResult.reauth_url || null;
-      if (!authUrl) {
-        try { authStart = await getMcpOAuthStart(env2, auth.userId, connector); } catch (_) {}
-        authUrl = (authStart && (authStart.authorize_url || authStart.url)) || null;
-      }
-      // PHASE_B_DAY40 - Claude-style reauth
+      const authUrl = await resolveMcpAuthorizeUrl(env2, auth.userId, connector, mcpResult);
       const msg = authUrl
-        ? ("Please authorize MCP **" + connector + "** first, then ask the same question again.\n\n" + authUrl)
-        : ("Please authorize MCP **" + connector + "** first. Use action `mcp_oauth_start`.");
+        ? ("Please authorize **MCP " + connector + "** to continue.\n\nOpen this link (valid ~15 min):\n\n" + authUrl + "\n\nAfter you finish, ask the same question again.")
+        : ("Please authorize **MCP " + connector + "** first. OAuth bridge could not be built — check NEXUS_INTERNAL_AUTH_SECRET.");
       await addMessage(env2, ip, auth.userId, sessionId, message, msg, true);
       // PHASE_B_DAY38 — schema v2 envelope
       {
@@ -10441,6 +10463,40 @@ var worker_default = {
       const params = Object.fromEntries(url.searchParams);
       params.sessionId = request.headers.get("X-Session-ID") || generateId();
       return await handleVoiceChatSupreme(request, env2, auth.userId, params.sessionId);
+    }
+    {
+      const mcpBridge = pathname.match(/^\/oauth\/mcp\/([^/]+)$/);
+      if (mcpBridge && request.method === "GET") {
+        const connector = decodeURIComponent(mcpBridge[1] || "").trim();
+        const userId = url.searchParams.get("u") || "";
+        const exp = parseInt(url.searchParams.get("e") || "0", 10);
+        const sig = url.searchParams.get("s") || "";
+        const secret = env2?.NEXUS_INTERNAL_AUTH_SECRET || env2?.NEXUS_AUTH_SECRET || env2?.MCP_AUTH_SECRET || env2?.NEXUS_HMAC_SECRET;
+        const now = Math.floor(Date.now() / 1000);
+        let ok = false;
+        if (secret && userId && connector && sig && exp >= now) {
+          try {
+            const payload = String(userId) + "|" + String(connector) + "|" + String(exp);
+            const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+            const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+            const expect = [...new Uint8Array(sigBuf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+            ok = expect === sig;
+          } catch (_) { ok = false; }
+        }
+        if (!ok) {
+          return new Response("<!doctype html><meta charset=utf-8><title>Link expired</title><body style='font-family:system-ui;padding:2rem'><h1>Authorize link invalid or expired</h1><p>Ask Nexus again for a fresh connect link.</p></body>", { status: 401, headers: { "Content-Type": "text/html; charset=utf-8" } });
+        }
+        try {
+          const started = typeof getMcpOAuthStart === "function" ? await getMcpOAuthStart(env2, userId, connector) : null;
+          if (started && started.authorize_url && /^https?:\/\//i.test(started.authorize_url)) {
+            return Response.redirect(started.authorize_url, 302);
+          }
+          const errMsg = (started && (started.error || (started.data && started.data.message))) || "OAuth start failed";
+          return new Response("<!doctype html><meta charset=utf-8><title>Connect</title><body style='font-family:system-ui;padding:2rem'><h1>Could not start OAuth</h1><p>" + String(errMsg).replace(/</g, "<") + "</p></body>", { status: 502, headers: { "Content-Type": "text/html; charset=utf-8" } });
+        } catch (e) {
+          return new Response("OAuth bridge error", { status: 500 });
+        }
+      }
     }
     if (pathname === "/oauth/google/login") {
       return await handleOAuthLogin(env2, "google");
