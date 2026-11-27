@@ -1,0 +1,36 @@
+name: Apply Pillar1 OAuth bridge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_pillar1_oauth.py'
+      - '.github/workflows/apply-pillar1-oauth.yml'
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply
+        run: |
+          set -e
+          python3 scripts/apply_pillar1_oauth.py
+          grep -q PILLAR1_OAUTH_BRIDGE worker.ts
+          grep -q PILLAR1_OAUTH_BRIDGE mcp-client.js
+          npx --yes esbuild worker.ts --bundle --platform=neutral --external:cloudflare:workers --outfile=/tmp/w.js
+      - name: Commit
+        run: |
+          git config user.name nexus-bot
+          git config user.email nexus@users.noreply.github.com
+          git add worker.ts mcp-client.js
+          if git diff --staged --quiet; then echo no changes; else
+            git commit -m "feat(pillar1): MCP OAuth bridge — always-clickable authorize_url"
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          fi
